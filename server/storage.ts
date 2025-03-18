@@ -87,6 +87,9 @@ export interface IStorage {
 
   // Get file shares by user ID
   getFileSharesByUserId(userId: number): Promise<FileShare[]>;
+
+  // Get user by ID
+  getUserById(id: number): Promise<User | undefined>;
 }
 
 export class MemStorage implements IStorage {
@@ -512,6 +515,10 @@ export class MemStorage implements IStorage {
     return Array.from(this.fileShares.values())
       .filter((share) => share.userId === userId)
       .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async getUserById(id: number): Promise<User | undefined> {
+    return this.getUser(id);
   }
 }
 

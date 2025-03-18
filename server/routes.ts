@@ -19,7 +19,8 @@ import {
   verifyMfaSchema,
   mfaLoginSchema,
 } from "@shared/schema";
-import { SecurityUtils } from './security'; // Added import
+import { SecurityUtils } from './security';
+import { FileShare, StoredFile } from './types';
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 const __filename = fileURLToPath(import.meta.url);
@@ -120,7 +121,7 @@ declare global {
 }
 
 // Helper function to check file access
-async function checkFileAccess(fileId: number, userId: number, requiredAccess: "view" | "edit" = "view"): Promise<{ hasAccess: boolean; file: File | undefined; share: FileShare | undefined }> {
+async function checkFileAccess(fileId: number, userId: number, requiredAccess: "view" | "edit" = "view"): Promise<{ hasAccess: boolean; file: StoredFile | undefined; share: FileShare | undefined }> {
   const file = await storage.getFile(fileId);
   if (!file) {
     return { hasAccess: false, file: undefined, share: undefined };
@@ -148,8 +149,95 @@ async function checkFileAccess(fileId: number, userId: number, requiredAccess: "
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
-
   const apiRouter = express.Router();
+  const mfaRouter = express.Router();
+  const mfaService = new MfaService(storage);
+
+  // Mount MFA routes
+  mfaRouter.post("/setup", authenticate, async (req: Request, res: Response) => {
+    try {
+      const userId = req.user?.id;
+      
+      if (!userId) {
+        return res.status(401).json({ message: "Unauthorized" });
+      }
+      
+      const result = setupMfaSchema.safeParse({ userId });
+      if (!result.success) {
+        return res.status(400).json({ 
+          message: "Invalid request",
+          errors: result.error.format() 
+        });
+      }
+      
+      const { qrCodeUrl } = await mfaService.setupMfa(userId);
+      
+      // Log the MFA setup attempt
+      await logActivity(
+        userId,
+        "mfa_setup_initiated",
+        userId,
+        "user",
+        { success: true },
+        req.ip
+      );
+      
+      return res.status(200).json({ qrCodeUrl });
+    } catch (error) {
+      console.error("Error setting up MFA:", error);
+      return res.status(500).json({ message: "Failed to set up MFA" });
+    }
+  });
+
+  mfaRouter.post("/verify", async (req: Request, res: Response) => {
+    try {
+      const { userId, token } = req.body;
+      
+      const result = verifyMfaSchema.safeParse({ userId, token });
+      if (!result.success) {
+        return res.status(400).json({ 
+          message: "Invalid request",
+          errors: result.error.format() 
+        });
+      }
+      
+      const isValid = await mfaService.verifyAndEnableMfa(userId, token);
+      
+      // Log the MFA verification attempt
+      await logActivity(
+        userId,
+        "mfa_verification",
+        userId,
+        "user",
+        { success: isValid },
+        req.ip
+      );
+      
+      if (isValid) {
+        // Generate JWT token after successful MFA verification
+        const user = await storage.getUserById(userId);
+        if (!user) {
+          return res.status(404).json({ message: "User not found" });
+        }
+
+        const token = jwt.sign(
+          { id: user.id, username: user.username, role: user.role },
+          JWT_SECRET,
+          { expiresIn: "24h" }
+        );
+
+        return res.status(200).json({ token, message: "MFA verification successful" });
+      } else {
+        return res.status(400).json({ message: "Invalid verification code" });
+      }
+    } catch (error) {
+      console.error("Error verifying MFA:", error);
+      return res.status(500).json({ message: "Failed to verify MFA" });
+    }
+  });
+
+  // Mount the MFA router
+  apiRouter.use("/mfa", mfaRouter);
 
   /**
    * Authentication Routes
@@ -718,165 +806,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   // This endpoint has been moved to a dedicated route below
-
-  /**
-   * MFA Routes
-   */
-  // Set up MFA (generates QR code)
-  apiRouter.post("/mfa/setup", authenticate, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const { qrCodeUrl } = await new MfaService(storage).setupMfa(userId);
-
-      // Log the MFA setup attempt
-      await logActivity(
-        userId,
-        "mfa_setup_initiated",
-        userId,
-        "user",
-        { success: true },
-        req.ip
-      );
-
-      return res.status(200).json({ qrCodeUrl });
-    } catch (error) {
-      console.error("Error setting up MFA:", error);
-      return res.status(500).json({ message: "Failed to set up MFA" });
-    }
-  });
-
-  // Verify and enable MFA for a user
-  apiRouter.post("/mfa/verify", authenticate, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const { token } = req.body;
-
-      const result = verifyMfaSchema.safeParse({ userId, token });
-      if (!result.success) {
-        return res.status(400).json({ 
-          message: "Invalid request",
-          errors: result.error.format() 
-        });
-      }
-
-      const isValid = await new MfaService(storage).verifyAndEnableMfa(userId, token);
-
-      // Log the MFA verification attempt
-      await logActivity(
-        userId,
-        "mfa_verification",
-        userId,
-        "user",
-        { success: isValid },
-        req.ip
-      );
-
-      if (isValid) {
-        return res.status(200).json({ message: "MFA enabled successfully" });
-      } else {
-        return res.status(400).json({ message: "Invalid verification code" });
-      }
-    } catch (error) {
-      console.error("Error verifying MFA:", error);
-      return res.status(500).json({ message: "Failed to verify MFA" });
-    }
-  });
-
-  // Disable MFA for a user
-  apiRouter.post("/mfa/disable", authenticate, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-
-      await new MfaService(storage).disableMfa(userId);
-
-      // Log the MFA disabling
-      await logActivity(
-        userId,
-        "mfa_disabled",
-        userId,
-        "user",
-        { success: true },
-        req.ip
-      );
-
-      return res.status(200).json({ message: "MFA disabled successfully" });
-    } catch (error) {
-      console.error("Error disabling MFA:", error);
-      return res.status(500).json({ message: "Failed to disable MFA" });
-    }
-  });
-
-  // MFA verification during login
-  apiRouter.post("/auth/mfa-login", async (req, res) => {
-    try {
-      const validatedData = mfaLoginSchema.parse(req.body);
-      const { userId, token: mfaToken } = validatedData;
-
-      // Find user
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(400).json({ message: "User not found" });
-      }
-
-      // Verify MFA token
-      const mfaService = new MfaService(storage);
-      const isValid = await mfaService.verifyMfaLogin(userId, mfaToken);
-
-      if (!isValid) {
-        // Increment failed login attempts and check for lockout
-        const failedAttempts = await storage.incrementFailedLoginAttempts(userId);
-
-        // Log the failed MFA attempt
-        await logActivity(
-          userId,
-          "mfa_login_failed",
-          userId,
-          "user",
-          { username: user.username },
-          req.ip
-        );
-
-        // Check if account should be locked
-        if (failedAttempts >= 5) {
-          // Lock account for 15 minutes
-          const lockUntil = new Date(Date.now() + 15 * 60 * 1000);
-          await storage.setUserLockout(userId, lockUntil);
-
-          return res.status(400).json({ 
-            message: "Account locked due to too many failed attempts. Try again later."
-          });
-        }
-
-        return res.status(400).json({ message: "Invalid verification code" });
-      }
-
-      // Create JWT token after successful MFA verification
-      const jwtToken = jwt.sign(
-        { id: user.id, username: user.username, role: user.role },
-        JWT_SECRET,
-        { expiresIn: "1d" }
-      );
-
-      // Update last login time and reset failed attempts
-      await storage.updateUserLastLogin(userId);
-      await storage.resetFailedLoginAttempts(userId);
-
-      // Log the successful MFA login
-      await logActivity(
-        userId,
-        "mfa_login_success",
-        userId,
-        "user",
-        { username: user.username },
-        req.ip
-      );
-
-      res.json({ token: jwtToken });
-    } catch (error) {
-      console.error("MFA login error:", error);
-      res.status(400).json({ message: (error as Error).message });
-    }
-  });
 
   // Get user's activity logs
   apiRouter.get("/activity-logs", authenticate, async (req, res) => {

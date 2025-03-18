@@ -46,7 +46,7 @@ export default function MfaVerification() {
     setIsLoading(true);
     
     try {
-      const response = await apiRequest("POST", "/api/auth/verify-mfa", {
+      const response = await apiRequest("POST", "/api/mfa/verify", {
         userId: Number(userId),
         token: data.token
       });
