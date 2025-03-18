@@ -25,6 +25,8 @@ interface AuthContextType {
   register: (username: string, email: string, password: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
+  token: string | null;
+  updateAuthState: (token: string | null) => Promise<boolean>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -34,55 +36,45 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [, navigate] = useLocation();
 
+  // Add a function to update auth state
+  const updateAuthState = async (token: string | null) => {
+    if (!token) {
+      setUser(null);
+      return;
+    }
+
+    try {
+      const response = await apiRequest("GET", "/api/auth/me");
+      if (response.ok) {
+        const userData = await response.json();
+        setUser(userData);
+        return true;
+      } else {
+        localStorage.removeItem("token");
+        setUser(null);
+        return false;
+      }
+    } catch (error) {
+      console.error("Auth check failed:", error);
+      localStorage.removeItem("token");
+      setUser(null);
+      return false;
+    }
+  };
+
+  // Watch for token changes
   useEffect(() => {
-    // Check if user is already logged in
-    const checkAuth = async () => {
-      const token = localStorage.getItem("token");
-
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const response = await fetch("/api/auth/me", {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-
-        if (response.ok) {
-          const userData = await response.json();
-          setUser(userData);
-        } else {
-          // If token is invalid, remove it
-          localStorage.removeItem("token");
-        }
-      } catch (error) {
-        console.error("Auth check failed:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    checkAuth();
+    const token = localStorage.getItem("token");
+    updateAuthState(token);
+    setLoading(false);
   }, []);
 
   const login = async (username: string, password: string, remember = false) => {
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Accept": "application/json",
-        },
-        body: JSON.stringify({ username, password }),
+      const response = await apiRequest("POST", "/api/auth/login", {
+        username,
+        password,
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Login failed");
-      }
 
       const data = await response.json();
 
@@ -95,9 +87,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         };
       }
 
-      // Store token and user data
+      // Store token and update auth state
       localStorage.setItem("token", data.token);
-      setUser(data.user);
+      const success = await updateAuthState(data.token);
+      
+      if (!success) {
+        throw new Error("Failed to authenticate user");
+      }
 
       return data;
     } catch (error) {
@@ -107,24 +103,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const register = async (username: string, email: string, password: string) => {
     try {
-      const response = await fetch("/api/auth/register", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ username, email, password, role: "user" }),
+      const response = await apiRequest("POST", "/api/auth/register", {
+        username,
+        email,
+        password,
+        role: "user"
       });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || "Registration failed");
-      }
 
       const data = await response.json();
       
-      // Store token and user data
+      // Store token and update auth state
       localStorage.setItem("token", data.token);
-      setUser(data.user);
+      const success = await updateAuthState(data.token);
+      
+      if (!success) {
+        throw new Error("Failed to authenticate user");
+      }
       
       return data;
     } catch (error) {
@@ -147,6 +141,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         register,
         logout,
         isAuthenticated: !!user,
+        token: localStorage.getItem("token"),
+        updateAuthState
       }}
     >
       {children}

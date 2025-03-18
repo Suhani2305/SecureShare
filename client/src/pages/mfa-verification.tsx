@@ -9,7 +9,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { apiRequest } from "@/lib/queryClient";
-import { useToast } from "@/hooks/use-toast";
+import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/utils/auth";
 
 const formSchema = z.object({
   token: z.string().min(6, "Verification code must be 6 digits").max(6, "Verification code must be 6 digits"),
@@ -26,6 +27,7 @@ export default function MfaVerification() {
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const { toast } = useToast();
+  const { updateAuthState } = useAuth();
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -51,15 +53,15 @@ export default function MfaVerification() {
         token: data.token
       });
       
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Verification failed");
-      }
-      
       const responseData = await response.json();
       
-      // Store token and redirect to dashboard
+      // Store token and update auth state
       localStorage.setItem("token", responseData.token);
+      const success = await updateAuthState(responseData.token);
+      
+      if (!success) {
+        throw new Error("Failed to authenticate user");
+      }
       
       toast({
         title: "Success",
