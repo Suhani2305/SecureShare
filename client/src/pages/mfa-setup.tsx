@@ -49,20 +49,7 @@ export default function MfaSetup() {
     setError(null);
     
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/mfa/setup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to set up MFA");
-      }
-      
+      const response = await apiRequest("POST", "/api/mfa/setup");
       const data = await response.json();
       setQrCodeUrl(data.qrCodeUrl);
     } catch (err) {
@@ -90,22 +77,9 @@ export default function MfaSetup() {
     setIsLoading(true);
     
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/mfa/verify", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          token: data.token
-        })
+      const response = await apiRequest("POST", "/api/mfa/verify", {
+        token: data.token
       });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Verification failed");
-      }
       
       setSuccess(true);
       toast({
@@ -130,19 +104,7 @@ export default function MfaSetup() {
     setError(null);
     
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch("/api/mfa/disable", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || "Failed to disable MFA");
-      }
+      const response = await apiRequest("POST", "/api/mfa/disable");
       
       toast({
         title: "Success",

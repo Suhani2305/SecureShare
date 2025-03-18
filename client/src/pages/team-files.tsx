@@ -24,29 +24,23 @@ interface SharedFile {
 export default function TeamFiles() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
+  const [showMobileSidebar, setShowMobileSidebar] = useState(false);
 
-  const { data: files, isLoading, error } = useQuery<SharedFile[]>({
+  const { data: files, isLoading, error } = useQuery({
     queryKey: ["/api/files/team"],
-    onSuccess: (data) => {
-      console.log("Team files fetched successfully:", {
-        count: data?.length,
-        files: data?.map(f => ({
-          id: f.id,
-          name: f.name,
-          sharedBy: f.sharedBy,
-          accessLevel: f.accessLevel
-        }))
-      });
-    },
-    onError: (error) => {
-      console.error("Error fetching team files:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load team files",
-        variant: "destructive",
-      });
+    queryFn: async () => {
+      const response = await apiRequest("GET", "/api/files/team");
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to fetch team files");
+      }
+      return response.json();
     }
   });
+
+  const handleMenuClick = () => {
+    setShowMobileSidebar(!showMobileSidebar);
+  };
 
   const filteredFiles = files?.filter(file => 
     file.originalName.toLowerCase().includes(searchQuery.toLowerCase())
@@ -56,8 +50,21 @@ export default function TeamFiles() {
     <div className="bg-gray-100 font-sans h-screen flex overflow-hidden">
       <Sidebar />
       
+      {/* Mobile sidebar */}
+      {showMobileSidebar && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <div 
+            className="fixed inset-0 bg-gray-600 bg-opacity-75"
+            onClick={() => setShowMobileSidebar(false)}
+          ></div>
+          <div className="fixed inset-y-0 left-0 flex flex-col z-40 w-64 bg-gray-800 text-white">
+            <Sidebar />
+          </div>
+        </div>
+      )}
+      
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Header />
+        <Header onMenuClick={handleMenuClick} />
         
         <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
@@ -87,7 +94,7 @@ export default function TeamFiles() {
               
               {error && (
                 <div className="text-center py-8 text-red-500">
-                  Failed to load team files
+                  {error instanceof Error ? error.message : "Failed to load team files"}
                 </div>
               )}
               
