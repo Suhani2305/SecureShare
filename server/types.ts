@@ -5,10 +5,16 @@ export interface StoredFile {
   mimeType: string;
   size: number;
   path: string;
+  folderId?: number;
   encrypted: boolean;
+  encryptionIV?: string;
+  encryptionTag?: string;
+  encryptionSalt?: string;
+  encryptedKey?: string;
   ownerId: number;
   createdAt: Date;
   updatedAt: Date;
+  deletedAt?: Date;
 }
 
 export interface FileShare {
@@ -18,6 +24,34 @@ export interface FileShare {
   accessLevel: "view" | "edit";
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface StoredFolder {
+  id: number;
+  name: string;
+  parentId?: number;
+  ownerId: number;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date;
+}
+
+export interface FolderShare {
+  id: number;
+  folderId: number;
+  userId: number;
+  accessLevel: "view" | "edit";
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface FolderContents {
+  folders: StoredFolder[];
+  files: StoredFile[];
+  breadcrumbs: {
+    id: number;
+    name: string;
+  }[];
 }
 
 export interface User {

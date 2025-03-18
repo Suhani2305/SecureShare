@@ -70,7 +70,7 @@ export function FileTable({
 
   const handleDownload = async (file: any) => {
     try {
-      const response = await fetch(`/api/files/${file.id}/download`);
+      const response = await apiRequest("GET", `/api/files/${file.id}/download`);
       if (!response.ok) throw new Error('Download failed');
       
       const blob = await response.blob();

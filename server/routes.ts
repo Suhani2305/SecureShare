@@ -21,6 +21,7 @@ import {
 } from "@shared/schema";
 import { SecurityUtils } from './security';
 import { FileShare, StoredFile } from './types';
+import { encryptionService } from './encryption';
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 const __filename = fileURLToPath(import.meta.url);
@@ -406,16 +407,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Encrypt file if requested
       let encryptedContent = fileContent;
-      let encryptionKey;
+      let encryptionDetails = null;
+      
       if (encrypt) {
-        encryptionKey = crypto.randomBytes(32);
-        const iv = crypto.randomBytes(16);
-        const cipher = crypto.createCipheriv("aes-256-cbc", encryptionKey, iv);
-        encryptedContent = Buffer.concat([iv, cipher.update(fileContent), cipher.final()]);
+        try {
+          // Generate a unique key for this file
+          const fileKey = encryptionService.generateFileKey();
+          
+          // Encrypt the file content with the file key
+          const { encryptedData, iv, authTag } = encryptionService.encryptFile(fileContent, fileKey);
+          
+          // Encrypt the file key with the master key
+          const { encryptedKey, salt } = encryptionService.encryptFileKey(fileKey);
+          
+          encryptedContent = encryptedData;
+          encryptionDetails = { iv, authTag, encryptedKey, salt };
+          
+          // Save encrypted content back to file
+          await fs.promises.writeFile(filePath, encryptedContent);
+          
+          console.log("File encrypted successfully");
+        } catch (error) {
+          console.error("Encryption error:", error);
+          throw new Error("File encryption failed");
+        }
       }
-
-      // Save encrypted content back to file
-      await fs.promises.writeFile(filePath, encryptedContent);
 
       // Create file record in database
       const newFile = await storage.createFile({
@@ -425,14 +441,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         size: file.size,
         path: filePath,
         encrypted: encrypt,
-        encryptionKey: encrypt ? encryptionKey?.toString("hex") : null,
+        encryptionIV: encryptionDetails?.iv,
+        encryptionTag: encryptionDetails?.authTag,
+        encryptionSalt: encryptionDetails?.salt,
+        encryptedKey: encryptionDetails?.encryptedKey,
         ownerId: req.user!.id,
         accessControl,
       });
 
       console.log("File record created:", {
         fileId: newFile.id,
-        ownerId: newFile.ownerId
+        ownerId: newFile.ownerId,
+        encrypted: newFile.encrypted
       });
 
       // Log activity
@@ -572,18 +592,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (file.encrypted) {
         try {
           // Read the encrypted file
-          const encryptedData = fs.readFileSync(filePath);
+          const encryptedData = await fs.promises.readFile(filePath);
 
           // Security checks on encrypted data
           if (!SecurityUtils.checkBufferOverflow(encryptedData)) {
             return res.status(400).json({ message: "File size exceeds maximum buffer limit" });
           }
 
-          // Extract IV from filename (prefix before first dash)
-          const iv = file.path.split('-')[0];
+          // Decrypt the file key using master key
+          const fileKey = encryptionService.decryptFileKey(
+            file.encryptedKey!,
+            file.encryptionSalt!
+          );
 
-          // Decrypt the file
-          const decryptedData = await storage.decryptFile(encryptedData, iv);
+          // Decrypt the file content using the file key
+          const decryptedData = encryptionService.decryptFile(
+            encryptedData,
+            file.encryptionIV!,
+            file.encryptionTag!,
+            fileKey
+          );
 
           // Scan decrypted content for threats
           const hasMalware = await SecurityUtils.scanForMalware(decryptedData);
@@ -601,12 +629,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.error("Decryption error:", error);
           return res.status(500).json({ message: "File decryption failed" });
         }
-      } else {
-        // For non-encrypted files, stream directly
-        res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
-        res.setHeader('Content-Type', file.mimeType);
-        fs.createReadStream(filePath).pipe(res);
       }
+
+      // For non-encrypted files, stream directly
+      res.setHeader('Content-Disposition', `attachment; filename="${file.originalName}"`);
+      res.setHeader('Content-Type', file.mimeType);
+      fs.createReadStream(filePath).pipe(res);
     } catch (error) {
       res.status(500).json({ message: (error as Error).message });
     }
@@ -765,6 +793,235 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else {
         res.status(404).json({ message: "File share not found" });
       }
+    } catch (error) {
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  /**
+   * Folder Routes
+   */
+  // Create folder
+  apiRouter.post("/folders", authenticate, async (req, res) => {
+    try {
+      const { name, parentId } = req.body;
+
+      if (!name) {
+        return res.status(400).json({ message: "Folder name is required" });
+      }
+
+      // If parentId is provided, verify it exists and user has access
+      if (parentId) {
+        const parentFolder = await storage.getFolder(parentId);
+        if (!parentFolder) {
+          return res.status(404).json({ message: "Parent folder not found" });
+        }
+
+        if (parentFolder.ownerId !== req.user!.id) {
+          const shares = await storage.getFolderSharesByFolderId(parentId);
+          const hasAccess = shares.some(
+            share => share.userId === req.user!.id && share.accessLevel === "edit"
+          );
+
+          if (!hasAccess) {
+            return res.status(403).json({ message: "Access denied to parent folder" });
+          }
+        }
+      }
+
+      const folder = await storage.createFolder({
+        name,
+        parentId,
+        ownerId: req.user!.id,
+      });
+
+      // Log activity
+      await logActivity(
+        req.user!.id,
+        "create_folder",
+        folder.id,
+        "folder",
+        { folderName: folder.name },
+        req.ip
+      );
+
+      res.status(201).json(folder);
+    } catch (error) {
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  // Get folder contents
+  apiRouter.get("/folders/:id/contents", authenticate, async (req, res) => {
+    try {
+      const folderId = parseInt(req.params.id);
+      const folder = await storage.getFolder(folderId);
+
+      if (!folder) {
+        return res.status(404).json({ message: "Folder not found" });
+      }
+
+      // Check access
+      if (folder.ownerId !== req.user!.id) {
+        const shares = await storage.getFolderSharesByFolderId(folderId);
+        const hasAccess = shares.some(share => share.userId === req.user!.id);
+
+        if (!hasAccess) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      // Get folder contents
+      const contents = await storage.getFolderContents(folderId);
+
+      // Get breadcrumbs
+      const breadcrumbs = await storage.getFolderBreadcrumbs(folderId);
+
+      res.json({
+        ...contents,
+        breadcrumbs,
+      });
+    } catch (error) {
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  // Share folder
+  apiRouter.post("/folders/:id/share", authenticate, async (req, res) => {
+    try {
+      const folderId = parseInt(req.params.id);
+      const { userId, accessLevel, expiresAt } = req.body;
+
+      if (!userId) {
+        return res.status(400).json({ message: "User ID is required" });
+      }
+
+      // Validate access level
+      if (accessLevel && !["view", "edit"].includes(accessLevel)) {
+        return res.status(400).json({ message: "Invalid access level" });
+      }
+
+      const folder = await storage.getFolder(folderId);
+      if (!folder) {
+        return res.status(404).json({ message: "Folder not found" });
+      }
+
+      // Only owner can share
+      if (folder.ownerId !== req.user!.id) {
+        return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check if user exists
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Check if folder is already shared with user
+      const existingShares = await storage.getFolderSharesByFolderId(folderId);
+      const existingShare = existingShares.find(share => share.userId === userId);
+      if (existingShare) {
+        return res.status(400).json({ message: "Folder already shared with this user" });
+      }
+
+      const share = await storage.shareFolderWithUser({
+        folderId,
+        userId,
+        accessLevel: accessLevel || "view",
+        expiresAt: expiresAt ? new Date(expiresAt) : undefined,
+      });
+
+      // Log activity
+      await logActivity(
+        req.user!.id,
+        "share_folder",
+        folderId,
+        "folder",
+        {
+          folderName: folder.name,
+          sharedWith: user.username,
+          accessLevel: share.accessLevel,
+        },
+        req.ip
+      );
+
+      res.status(201).json(share);
+    } catch (error) {
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  // Move file to folder
+  apiRouter.post("/files/:id/move", authenticate, async (req, res) => {
+    try {
+      const fileId = parseInt(req.params.id);
+      const { folderId } = req.body;
+
+      const file = await storage.getFile(fileId);
+      if (!file) {
+        return res.status(404).json({ message: "File not found" });
+      }
+
+      // Check file access
+      if (file.ownerId !== req.user!.id) {
+        const shares = await storage.getFileSharesByFileId(fileId);
+        const hasAccess = shares.some(
+          share => share.userId === req.user!.id && share.accessLevel === "edit"
+        );
+
+        if (!hasAccess) {
+          return res.status(403).json({ message: "Access denied" });
+        }
+      }
+
+      // If moving to a folder, check folder access
+      if (folderId) {
+        const folder = await storage.getFolder(folderId);
+        if (!folder) {
+          return res.status(404).json({ message: "Destination folder not found" });
+        }
+
+        if (folder.ownerId !== req.user!.id) {
+          const shares = await storage.getFolderSharesByFolderId(folderId);
+          const hasAccess = shares.some(
+            share => share.userId === req.user!.id && share.accessLevel === "edit"
+          );
+
+          if (!hasAccess) {
+            return res.status(403).json({ message: "Access denied to destination folder" });
+          }
+        }
+      }
+
+      await storage.moveFile(fileId, folderId);
+
+      // Log activity
+      await logActivity(
+        req.user!.id,
+        "move_file",
+        fileId,
+        "file",
+        {
+          fileName: file.originalName,
+          destinationFolderId: folderId,
+        },
+        req.ip
+      );
+
+      res.json({ message: "File moved successfully" });
+    } catch (error) {
+      res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  // Get root folder contents
+  apiRouter.get("/folders/root/contents", authenticate, async (req, res) => {
+    try {
+      const contents = await storage.getRootFolderContents(req.user!.id);
+      res.json({
+        ...contents,
+        breadcrumbs: [],
+      });
     } catch (error) {
       res.status(500).json({ message: (error as Error).message });
     }

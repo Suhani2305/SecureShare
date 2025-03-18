@@ -16,6 +16,17 @@ export const users = pgTable("users", {
   lockoutUntil: timestamp("lockout_until"),
 });
 
+// Folder model
+export const folders = pgTable("folders", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  parentId: integer("parent_id"),
+  ownerId: integer("owner_id").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"),
+});
+
 // File model
 export const files = pgTable("files", {
   id: serial("id").primaryKey(),
@@ -24,9 +35,16 @@ export const files = pgTable("files", {
   mimeType: text("mime_type").notNull(),
   size: integer("size").notNull(),
   path: text("path").notNull(),
+  folderId: integer("folder_id"),
   encrypted: boolean("encrypted").notNull().default(true),
+  encryptionIV: text("encryption_iv"),
+  encryptionTag: text("encryption_tag"),
+  encryptionSalt: text("encryption_salt"),
+  encryptedKey: text("encrypted_key"),
   ownerId: integer("owner_id").notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at"),
 });
 
 // File share model
@@ -51,11 +69,24 @@ export const activityLogs = pgTable("activity_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
+// Add folder share model
+export const folderShares = pgTable("folder_shares", {
+  id: serial("id").primaryKey(),
+  folderId: integer("folder_id").notNull(),
+  userId: integer("user_id").notNull(),
+  accessLevel: text("access_level").notNull().default("view"), // view, edit
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Insert schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true });
 export const insertFileSchema = createInsertSchema(files).omit({ id: true, createdAt: true });
 export const insertFileShareSchema = createInsertSchema(fileShares).omit({ id: true, createdAt: true });
 export const insertActivityLogSchema = createInsertSchema(activityLogs).omit({ id: true, createdAt: true });
+export const insertFolderSchema = createInsertSchema(folders).omit({ id: true, createdAt: true });
+export const insertFolderShareSchema = createInsertSchema(folderShares).omit({ id: true, createdAt: true });
 
 // Login schema
 export const loginSchema = z.object({
@@ -83,6 +114,8 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertFile = z.infer<typeof insertFileSchema>;
 export type InsertFileShare = z.infer<typeof insertFileShareSchema>;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
+export type InsertFolder = z.infer<typeof insertFolderSchema>;
+export type InsertFolderShare = z.infer<typeof insertFolderShareSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type SetupMfaInput = z.infer<typeof setupMfaSchema>;
 export type VerifyMfaInput = z.infer<typeof verifyMfaSchema>;
@@ -92,3 +125,5 @@ export type User = typeof users.$inferSelect;
 export type File = typeof files.$inferSelect;
 export type FileShare = typeof fileShares.$inferSelect;
 export type ActivityLog = typeof activityLogs.$inferSelect;
+export type Folder = typeof folders.$inferSelect;
+export type FolderShare = typeof folderShares.$inferSelect;
