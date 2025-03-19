@@ -17,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Calendar as CalendarComponent } from "@/components/ui/calendar";
+import { API_ENDPOINTS } from "@/lib/config";
 
 interface FileItem {
   id: number;
@@ -56,7 +57,7 @@ export default function MyFiles() {
   const { toast } = useToast();
   
   const { data: files, isLoading, error } = useQuery<FileItem[]>({
-    queryKey: ["/api/files"],
+    queryKey: [API_ENDPOINTS.FILES],
     onSuccess: (data) => {
       console.log("Files fetched successfully:", {
         count: data?.length,
@@ -70,6 +71,11 @@ export default function MyFiles() {
     },
     onError: (error) => {
       console.error("Error fetching files:", error);
+      toast({
+        title: "Error",
+        description: "Failed to load files. Please try again.",
+        variant: "destructive",
+      });
     }
   });
   
@@ -142,7 +148,7 @@ export default function MyFiles() {
   
   const deleteMutation = useMutation({
     mutationFn: async (fileId: number) => {
-      return apiRequest("DELETE", `/api/files/${fileId}`);
+      return apiRequest("DELETE", `${API_ENDPOINTS.FILES}/${fileId}`);
     },
     onSuccess: () => {
       toast({
@@ -150,7 +156,7 @@ export default function MyFiles() {
         description: "The file has been deleted successfully",
       });
       
-      queryClient.invalidateQueries({ queryKey: ["/api/files"] });
+      queryClient.invalidateQueries({ queryKey: [API_ENDPOINTS.FILES] });
     },
     onError: (error) => {
       toast({
@@ -203,7 +209,7 @@ export default function MyFiles() {
       try {
         // Create an array of delete promises
         const deletePromises = selectedFileIds.map(fileId => 
-          apiRequest("DELETE", `/api/files/${fileId}`)
+          apiRequest("DELETE", `${API_ENDPOINTS.FILES}/${fileId}`)
         );
         
         // Execute all delete operations
@@ -219,7 +225,7 @@ export default function MyFiles() {
         setIsSelectMode(false);
         
         // Refresh the file list
-        queryClient.invalidateQueries({ queryKey: ["/api/files"] });
+        queryClient.invalidateQueries({ queryKey: [API_ENDPOINTS.FILES] });
       } catch (error) {
         toast({
           title: "Error",

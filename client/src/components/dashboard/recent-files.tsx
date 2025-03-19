@@ -1,4 +1,3 @@
-
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { useQuery } from "@tanstack/react-query";
 import { FileItem } from "@/types";
@@ -7,20 +6,17 @@ import { Button } from "@/components/ui/button";
 import { Download, Share2 } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/utils/auth";
+import { API_ENDPOINTS } from "@/lib/config";
+import { apiRequest } from "@/lib/queryClient";
 
 export function RecentFiles() {
   const { token } = useAuth();
 
   const { data: files, isLoading, error } = useQuery<FileItem[]>({
-    queryKey: ["files"],
+    queryKey: [API_ENDPOINTS.FILES],
     enabled: !!token,
     queryFn: async () => {
-      const response = await fetch("/api/files", {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await apiRequest("GET", API_ENDPOINTS.FILES);
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || "Failed to fetch files");

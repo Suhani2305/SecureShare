@@ -12,7 +12,10 @@ import {
   type FileShare, 
   type InsertFileShare, 
   type ActivityLog, 
-  type InsertActivityLog 
+  type InsertActivityLog,
+  type StoredFolder,
+  type FolderShare,
+  type FolderContents
 } from "@shared/schema";
 import crypto from "crypto";
 import { encryptionService } from "./encryption";
@@ -26,8 +29,32 @@ interface CreateFileParams {
   path: string;
   encrypted: boolean;
   encryptionKey?: string | null;
+  encryptionIV?: string | null;
+  encryptionTag?: string | null;
+  encryptionSalt?: string | null;
+  encryptedKey?: string | null;
   ownerId: number;
   accessControl: string;
+}
+
+export interface User {
+  id: number;
+  username: string;
+  email: string;
+  password: string;
+  mfaEnabled: boolean;
+  mfaSecret?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TeamMember {
+  id: number;
+  userId: number;
+  accessLevel: 'read' | 'write' | 'admin';
+  addedBy: number;
+  addedAt: Date;
+  updatedAt: Date;
 }
 
 export interface IStorage {
@@ -56,6 +83,10 @@ export interface IStorage {
     path: string;
     encrypted: boolean;
     encryptionKey?: string | null;
+    encryptionIV?: string | null;
+    encryptionTag?: string | null;
+    encryptionSalt?: string | null;
+    encryptedKey?: string | null;
     ownerId: number;
     accessControl: string;
     createdAt: string;
@@ -90,6 +121,28 @@ export interface IStorage {
 
   // Get user by ID
   getUserById(id: number): Promise<User | undefined>;
+
+  // Team member methods
+  addTeamMember(params: { userId: number; accessLevel: string; addedBy: number }): Promise<TeamMember>;
+  getTeamMember(userId: number): Promise<TeamMember | undefined>;
+  getAllTeamMembers(): Promise<TeamMember[]>;
+  updateTeamMemberAccess(userId: number, accessLevel: string): Promise<void>;
+  removeTeamMember(userId: number): Promise<void>;
+
+  // Folder operations
+  getFolder(id: number): Promise<StoredFolder | undefined>;
+  getFolderSharesByFolderId(folderId: number): Promise<FolderShare[]>;
+  createFolder(params: { name: string; parentId?: number; ownerId: number }): Promise<StoredFolder>;
+  getFolderContents(folderId: number): Promise<FolderContents>;
+  getFolderBreadcrumbs(folderId: number): Promise<{ id: number; name: string }[]>;
+  getRootFolderContents(userId: number): Promise<FolderContents>;
+  moveFile(fileId: number, folderId: number | undefined): Promise<void>;
+
+  // Activity logging
+  addActivityLog(params: { userId: number; action: string; details: string }): Promise<ActivityLog>;
+
+  // Folder sharing
+  shareFolderWithUser(params: { folderId: number; userId: number; accessLevel: string; expiresAt?: Date }): Promise<FolderShare>;
 }
 
 export class MemStorage implements IStorage {
@@ -97,21 +150,33 @@ export class MemStorage implements IStorage {
   private files: Map<number, File>;
   private fileShares: Map<number, FileShare>;
   private activityLogs: Map<number, ActivityLog>;
+  private teamMembers: Map<number, TeamMember>;
   private userIdCounter: number;
   private fileIdCounter: number;
   private fileShareIdCounter: number;
   private activityLogIdCounter: number;
+  private teamMemberIdCounter: number;
   private uploadDir: string;
+  private folders: Map<number, StoredFolder>;
+  private folderShares: Map<number, FolderShare>;
+  private folderIdCounter: number;
+  private folderShareIdCounter: number;
 
   constructor() {
     this.users = new Map();
     this.files = new Map();
     this.fileShares = new Map();
     this.activityLogs = new Map();
+    this.teamMembers = new Map();
     this.userIdCounter = 1;
     this.fileIdCounter = 1;
     this.fileShareIdCounter = 1;
     this.activityLogIdCounter = 1;
+    this.teamMemberIdCounter = 1;
+    this.folders = new Map();
+    this.folderShares = new Map();
+    this.folderIdCounter = 1;
+    this.folderShareIdCounter = 1;
     
     // Create upload directory if it doesn't exist
     this.uploadDir = path.resolve(process.cwd(), "uploads");
@@ -126,9 +191,7 @@ export class MemStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username
-    );
+    return Array.from(this.users.values()).find(user => user.username === username);
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
@@ -285,6 +348,10 @@ export class MemStorage implements IStorage {
     path: string;
     encrypted: boolean;
     encryptionKey?: string | null;
+    encryptionIV?: string | null;
+    encryptionTag?: string | null;
+    encryptionSalt?: string | null;
+    encryptedKey?: string | null;
     ownerId: number;
     accessControl: string;
     createdAt: string;
@@ -342,6 +409,10 @@ export class MemStorage implements IStorage {
       path: params.path,
       encrypted: params.encrypted ?? true,
       encryptionKey: params.encryptionKey,
+      encryptionIV: params.encryptionIV,
+      encryptionTag: params.encryptionTag,
+      encryptionSalt: params.encryptionSalt,
+      encryptedKey: params.encryptedKey,
       ownerId: params.ownerId,
       accessControl: params.accessControl,
       createdAt: createdAt.toISOString(),
@@ -519,6 +590,148 @@ export class MemStorage implements IStorage {
 
   async getUserById(id: number): Promise<User | undefined> {
     return this.getUser(id);
+  }
+
+  // Team member methods
+  async addTeamMember(params: { userId: number; accessLevel: string; addedBy: number }): Promise<TeamMember> {
+    const now = new Date();
+    const teamMember: TeamMember = {
+      id: this.teamMemberIdCounter++,
+      userId: params.userId,
+      accessLevel: params.accessLevel as 'read' | 'write' | 'admin',
+      addedBy: params.addedBy,
+      addedAt: now,
+      updatedAt: now
+    };
+    this.teamMembers.set(teamMember.id, teamMember);
+    return teamMember;
+  }
+
+  async getTeamMember(userId: number): Promise<TeamMember | undefined> {
+    return Array.from(this.teamMembers.values()).find(member => member.userId === userId);
+  }
+
+  async getAllTeamMembers(): Promise<TeamMember[]> {
+    return Array.from(this.teamMembers.values());
+  }
+
+  async updateTeamMemberAccess(userId: number, accessLevel: string): Promise<void> {
+    const teamMember = await this.getTeamMember(userId);
+    if (teamMember) {
+      teamMember.accessLevel = accessLevel as 'read' | 'write' | 'admin';
+      teamMember.updatedAt = new Date();
+      this.teamMembers.set(teamMember.id, teamMember);
+    }
+  }
+
+  async removeTeamMember(userId: number): Promise<void> {
+    const teamMember = await this.getTeamMember(userId);
+    if (teamMember) {
+      this.teamMembers.delete(teamMember.id);
+    }
+  }
+
+  // Folder operations
+  async getFolder(id: number): Promise<StoredFolder | undefined> {
+    return this.folders.get(id);
+  }
+
+  async getFolderSharesByFolderId(folderId: number): Promise<FolderShare[]> {
+    return Array.from(this.folderShares.values())
+      .filter(share => share.folderId === folderId);
+  }
+
+  async createFolder(params: { name: string; parentId?: number; ownerId: number }): Promise<StoredFolder> {
+    const id = this.folderIdCounter++;
+    const now = new Date();
+    const folder: StoredFolder = {
+      id,
+      name: params.name,
+      parentId: params.parentId,
+      ownerId: params.ownerId,
+      createdAt: now,
+      updatedAt: now
+    };
+    this.folders.set(id, folder);
+    return folder;
+  }
+
+  async getFolderContents(folderId: number): Promise<FolderContents> {
+    const folders = Array.from(this.folders.values())
+      .filter(folder => folder.parentId === folderId && !folder.deletedAt);
+    
+    const files = Array.from(this.files.values())
+      .filter(file => file.folderId === folderId && !file.isDeleted);
+
+    const breadcrumbs = await this.getFolderBreadcrumbs(folderId);
+
+    return { folders, files, breadcrumbs };
+  }
+
+  async getFolderBreadcrumbs(folderId: number): Promise<{ id: number; name: string }[]> {
+    const breadcrumbs: { id: number; name: string }[] = [];
+    let currentFolder = await this.getFolder(folderId);
+
+    while (currentFolder) {
+      breadcrumbs.unshift({ id: currentFolder.id, name: currentFolder.name });
+      if (currentFolder.parentId) {
+        currentFolder = await this.getFolder(currentFolder.parentId);
+      } else {
+        break;
+      }
+    }
+
+    return breadcrumbs;
+  }
+
+  async getRootFolderContents(userId: number): Promise<FolderContents> {
+    const folders = Array.from(this.folders.values())
+      .filter(folder => !folder.parentId && folder.ownerId === userId && !folder.deletedAt);
+    
+    const files = Array.from(this.files.values())
+      .filter(file => !file.folderId && file.ownerId === userId && !file.isDeleted);
+
+    return { folders, files, breadcrumbs: [] };
+  }
+
+  async moveFile(fileId: number, folderId: number | undefined): Promise<void> {
+    const file = await this.getFile(fileId);
+    if (file) {
+      file.folderId = folderId;
+      file.updatedAt = new Date();
+      this.files.set(fileId, file);
+    }
+  }
+
+  // Activity logging
+  async addActivityLog(params: { userId: number; action: string; details: string }): Promise<ActivityLog> {
+    const id = this.activityLogIdCounter++;
+    const now = new Date();
+    const log: ActivityLog = {
+      id,
+      userId: params.userId,
+      action: params.action,
+      details: params.details,
+      createdAt: now
+    };
+    this.activityLogs.set(id, log);
+    return log;
+  }
+
+  // Folder sharing
+  async shareFolderWithUser(params: { folderId: number; userId: number; accessLevel: string; expiresAt?: Date }): Promise<FolderShare> {
+    const id = this.folderShareIdCounter++;
+    const now = new Date();
+    const share: FolderShare = {
+      id,
+      folderId: params.folderId,
+      userId: params.userId,
+      accessLevel: params.accessLevel as "view" | "edit",
+      createdAt: now,
+      updatedAt: now
+    };
+    this.folderShares.set(id, share);
+    return share;
   }
 }
 

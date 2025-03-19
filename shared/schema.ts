@@ -127,3 +127,23 @@ export type FileShare = typeof fileShares.$inferSelect;
 export type ActivityLog = typeof activityLogs.$inferSelect;
 export type Folder = typeof folders.$inferSelect;
 export type FolderShare = typeof folderShares.$inferSelect;
+
+export const teamMemberSchema = z.object({
+  userId: z.number(),
+  accessLevel: z.enum(["read", "write", "admin"]),
+  addedBy: z.number()
+});
+
+export const teamMemberResponseSchema = z.object({
+  id: z.number(),
+  userId: z.number(),
+  accessLevel: z.enum(["read", "write", "admin"]),
+  addedBy: z.number(),
+  addedAt: z.date(),
+  updatedAt: z.date(),
+  username: z.string().optional(),
+  email: z.string().optional()
+});
+
+export type TeamMember = z.infer<typeof teamMemberResponseSchema>;
+export type InsertTeamMember = z.infer<typeof teamMemberSchema>;

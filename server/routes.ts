@@ -22,6 +22,7 @@ import {
 import { SecurityUtils } from './security';
 import { FileShare, StoredFile } from './types';
 import { encryptionService } from './encryption';
+import { IStorage, User, TeamMember } from './storage';
 
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 const __filename = fileURLToPath(import.meta.url);
@@ -53,20 +54,26 @@ const upload = multer({
 
 // Authentication middleware
 const authenticate = (req: Request, res: Response, next: NextFunction) => {
-  const authHeader = req.headers.authorization;
-
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ message: "Unauthorized" });
-  }
-
-  const token = authHeader.split(" ")[1];
-
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { id: number, username: string, role: string };
-    req.user = decoded;
-    next();
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "Authentication required" });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { id: number; username: string; role: string };
+      req.user = decoded;
+      next();
+    } catch (error) {
+      console.error('Token verification error:', error);
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
   } catch (error) {
-    return res.status(401).json({ message: "Invalid token" });
+    console.error('Authentication error:', error);
+    return res.status(500).json({ error: "Internal server error during authentication" });
   }
 };
 
@@ -123,7 +130,7 @@ declare global {
 
 // Helper function to check file access
 async function checkFileAccess(fileId: number, userId: number, requiredAccess: "view" | "edit" = "view"): Promise<{ hasAccess: boolean; file: StoredFile | undefined; share: FileShare | undefined }> {
-  const file = await storage.getFile(fileId);
+  const file = await storage.getFile(fileId) as StoredFile | undefined;
   if (!file) {
     return { hasAccess: false, file: undefined, share: undefined };
   }
@@ -135,7 +142,7 @@ async function checkFileAccess(fileId: number, userId: number, requiredAccess: "
 
   // Check shared access
   const shares = await storage.getFileSharesByFileId(fileId);
-  const share = shares.find(s => s.userId === userId);
+  const share = shares.find(s => s.userId === userId) as FileShare | undefined;
   
   if (!share) {
     return { hasAccess: false, file, share: undefined };
@@ -513,7 +520,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get additional metadata
       const stats = fs.statSync(path.join(UPLOAD_DIR, file.path));
 
-      const metadata = {
+      const metadata: any = {
         ...file,
         lastModified: stats.mtime,
         created: stats.birthtime,
@@ -524,9 +531,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       };
 
       // Remove sensitive information
-      delete metadata.path;
-      if (metadata.owner) {
+      if (metadata.path) {
+        delete metadata.path;
+      }
+      if (metadata.owner?.password) {
         delete metadata.owner.password;
+      }
+      if (metadata.owner?.mfaSecret) {
         delete metadata.owner.mfaSecret;
       }
 
@@ -1191,6 +1202,152 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(recentFiles);
     } catch (error) {
       res.status(500).json({ message: (error as Error).message });
+    }
+  });
+
+  // Team member routes
+  apiRouter.post("/team/members", authenticate, async (req: Request, res: Response) => {
+    try {
+      const { username, accessLevel } = req.body;
+      
+      // Input validation
+      if (!username || !accessLevel) {
+        return res.status(400).json({ error: 'Username and access level are required' });
+      }
+
+      // Validate access level
+      const validAccessLevels = ['read', 'write', 'admin'] as const;
+      if (!validAccessLevels.includes(accessLevel)) {
+        return res.status(400).json({ error: 'Invalid access level. Must be read, write, or admin' });
+      }
+
+      // Get user by username
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Check if user is already a team member
+      const existingMember = await storage.getTeamMember(user.id);
+      if (existingMember) {
+        return res.status(409).json({ error: 'User is already a team member' });
+      }
+
+      // Add team member
+      const teamMember = await storage.addTeamMember({
+        userId: user.id,
+        accessLevel,
+        addedBy: req.user!.id
+      });
+
+      // Get user details for response
+      const memberWithDetails = {
+        ...teamMember,
+        username: user.username,
+        email: user.email
+      };
+
+      // Log activity
+      await storage.addActivityLog({
+        userId: req.user!.id,
+        action: 'add_team_member',
+        details: `Added ${username} as team member with ${accessLevel} access`
+      });
+
+      res.status(201).json(memberWithDetails);
+    } catch (error) {
+      console.error('Error adding team member:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  apiRouter.get("/team/members", authenticate, async (req: Request, res: Response) => {
+    try {
+      const members = await storage.getAllTeamMembers();
+      
+      // Get user details for each member
+      const membersWithDetails = await Promise.all(
+        members.map(async (member) => {
+          const user = await storage.getUserById(member.userId);
+          return {
+            ...member,
+            username: user?.username,
+            email: user?.email
+          };
+        })
+      );
+
+      res.json(membersWithDetails);
+    } catch (error) {
+      console.error('Error getting team members:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  apiRouter.patch("/team/members/:userId/access", authenticate, async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { accessLevel } = req.body;
+
+      if (!accessLevel) {
+        return res.status(400).json({ error: 'Access level is required' });
+      }
+
+      // Validate access level
+      const validAccessLevels = ['read', 'write', 'admin'] as const;
+      if (!validAccessLevels.includes(accessLevel)) {
+        return res.status(400).json({ error: 'Invalid access level' });
+      }
+
+      // Check if member exists
+      const member = await storage.getTeamMember(parseInt(userId));
+      if (!member) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+
+      // Update access level
+      await storage.updateTeamMemberAccess(parseInt(userId), accessLevel);
+
+      // Log activity
+      const user = await storage.getUserById(parseInt(userId));
+      await storage.addActivityLog({
+        userId: req.user!.id,
+        action: 'update_member_access',
+        details: `Updated ${user?.username}'s access level to ${accessLevel}`
+      });
+
+      res.json({ message: 'Access level updated successfully' });
+    } catch (error) {
+      console.error('Error updating team member access:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  apiRouter.delete("/team/members/:userId", authenticate, async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      // Check if member exists
+      const member = await storage.getTeamMember(parseInt(userId));
+      if (!member) {
+        return res.status(404).json({ error: 'Team member not found' });
+      }
+
+      // Remove team member
+      await storage.removeTeamMember(parseInt(userId));
+
+      // Log activity
+      const user = await storage.getUserById(parseInt(userId));
+      await storage.addActivityLog({
+        userId: req.user!.id,
+        action: 'remove_team_member',
+        details: `Removed ${user?.username} from team`
+      });
+
+      res.json({ message: 'Team member removed successfully' });
+    } catch (error) {
+      console.error('Error removing team member:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
