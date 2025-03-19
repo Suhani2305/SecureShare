@@ -281,50 +281,13 @@ export class MemStorage implements IStorage {
   }
 
   async getFilesByOwnerId(ownerId: number, includeDeleted: boolean = false): Promise<File[]> {
-    console.log("Getting files for owner:", {
-      ownerId,
-      includeDeleted,
-      totalFiles: this.files.size,
-      allFiles: Array.from(this.files.values()).map(f => ({
-        id: f.id,
-        name: f.name,
-        ownerId: f.ownerId,
-        isDeleted: f.isDeleted
-      }))
-    });
-
-    const userFiles = Array.from(this.files.values())
-      .filter((file) => {
-        const matches = file.ownerId === ownerId && file.isDeleted === includeDeleted;
-        console.log("Checking file:", {
-          fileId: file.id,
-          fileOwnerId: file.ownerId,
-          fileIsDeleted: file.isDeleted,
-          matches,
-          fileDetails: {
-            id: file.id,
-            name: file.name,
-            ownerId: file.ownerId,
-            isDeleted: file.isDeleted
-          }
-        });
-        return matches;
-      })
-      .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
-    
-    console.log("Found user files:", {
-      count: userFiles.length,
-      files: userFiles.map(f => ({
-        id: f.id,
-        name: f.name,
-        ownerId: f.ownerId,
-        isDeleted: f.isDeleted
-      }))
-    });
+    const userFiles = Array.from(this.files.values()).filter(f => 
+      f.ownerId === ownerId && (includeDeleted || !f.isDeleted)
+    );
     
     // Add physical file info
     return userFiles.map(file => {
-      const filePath = path.join(this.uploadDir, file.path);
+      const filePath = file.path; // Use the path directly without joining with uploadDir
       const stats = fs.statSync(filePath);
       console.log("Physical file info:", {
         fileId: file.id,
