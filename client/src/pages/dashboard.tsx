@@ -27,17 +27,17 @@ export default function Dashboard() {
   };
   
   return (
-    <div className="bg-gray-100 font-sans h-screen flex overflow-hidden">
+    <div className="bg-slate-50 font-sans h-screen flex overflow-hidden">
       <Sidebar />
       
       {/* Mobile sidebar */}
       {showMobileSidebar && (
         <div className="fixed inset-0 z-40 md:hidden">
           <div 
-            className="fixed inset-0 bg-gray-600 bg-opacity-75"
+            className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm"
             onClick={() => setShowMobileSidebar(false)}
           ></div>
-          <div className="fixed inset-y-0 left-0 flex flex-col z-40 w-64 bg-gray-800 text-white">
+          <div className="fixed inset-y-0 left-0 flex flex-col z-40 w-56">
             <Sidebar />
           </div>
         </div>
@@ -46,23 +46,23 @@ export default function Dashboard() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header onMenuClick={handleMenuClick} />
         
-        <main className="flex-1 overflow-y-auto bg-gray-50 p-6">
-          <div className="flex justify-between items-center mb-6">
-            <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+        <main className="flex-1 overflow-y-auto p-8">
+          <div className="flex justify-between items-center mb-8">
+            <h1 className="text-3xl font-bold text-slate-900">Dashboard</h1>
             
             <div>
               <Button 
-                className="bg-primary hover:bg-blue-600 text-white px-4 py-2 rounded-md flex items-center"
+                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2.5 rounded-lg flex items-center shadow-sm transition-colors"
                 onClick={() => setIsUploadModalOpen(true)}
               >
-                <Upload className="mr-2 h-4 w-4" />
+                <Upload className="mr-2 h-5 w-5" />
                 <span>Upload Files</span>
               </Button>
             </div>
           </div>
           
           {/* Storage Stats */}
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-6 md:grid-cols-3 mb-8">
             <StorageStats />
             <FileStats 
               total={files?.length || 0}
@@ -74,19 +74,19 @@ export default function Dashboard() {
           </div>
           
           {/* Recent Activity and Quick Access */}
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-6 md:grid-cols-2 mb-8">
             <ActivityList />
             <QuickAccess />
           </div>
           
           {/* Recent Files */}
-          <div className="mb-6">
+          <div className="mb-8">
             <RecentFiles />
           </div>
           
           {/* Team Members Security Status - only for admins */}
           {user?.role === "admin" && (
-            <div>
+            <div className="mb-8">
               <TeamSecurity />
             </div>
           )}

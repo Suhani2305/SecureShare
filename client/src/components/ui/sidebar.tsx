@@ -55,16 +55,21 @@ export function Sidebar() {
   const location = useLocation();
   
   return (
-    <div className={cn("pb-12 border-r min-h-screen")}>
+    <div className={cn("pb-12 border-r min-h-screen w-56 bg-slate-900")}>
       <div className="space-y-4 py-4">
-        <div className="px-3 py-2">
-          <h2 className="mb-2 px-4 text-lg font-semibold">SecureFiles</h2>
+        <div className="px-2 py-2">
+          <h2 className="mb-4 px-3 text-lg font-semibold tracking-tight text-white">SecureFiles</h2>
           <div className="space-y-1">
             {routes.map((route) => (
               <Button
                 key={route.href}
                 variant={location.pathname === route.href ? "secondary" : "ghost"}
-                className="w-full justify-start"
+                className={cn(
+                  "w-full justify-start text-sm",
+                  location.pathname === route.href 
+                    ? "bg-slate-800 text-white hover:bg-slate-700" 
+                    : "text-slate-300 hover:text-white hover:bg-slate-800"
+                )}
                 asChild
               >
                 <Link to={route.href}>
@@ -76,10 +81,10 @@ export function Sidebar() {
           </div>
         </div>
       </div>
-      <div className="px-3 py-2">
+      <div className="px-3 py-2 absolute bottom-4 w-full">
         <Button
           variant="ghost"
-          className="w-full justify-start"
+          className="w-full justify-start text-sm text-slate-300 hover:text-white hover:bg-slate-800"
           onClick={() => logout()}
         >
           <LogOut className="mr-2 h-4 w-4" />
