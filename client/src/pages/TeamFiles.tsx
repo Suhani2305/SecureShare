@@ -14,7 +14,7 @@ const TeamFiles: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isAddMemberModalVisible, setIsAddMemberModalVisible] = useState(false);
   const [newMemberEmail, setNewMemberEmail] = useState('');
-  const [newMemberRole, setNewMemberRole] = useState<'admin' | 'member'>('member');
+  const [newMemberRole, setNewMemberRole] = useState<'read' | 'write' | 'admin'>('read');
   const { user } = useAuth();
 
   // Load initial data
@@ -69,22 +69,22 @@ const TeamFiles: React.FC = () => {
   // Team member operations
   const handleAddMember = async () => {
     try {
-      await teamService.addTeamMember(newMemberEmail, newMemberRole);
+      await teamService.addTeamMember(newMemberEmail, newMemberRole as 'read' | 'write' | 'admin');
       message.success('Team member added successfully');
       setIsAddMemberModalVisible(false);
       loadData();
-    } catch (error) {
-      message.error('Failed to add team member');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to add team member');
     }
   };
 
-  const handleRemoveMember = async (memberId: string) => {
+  const handleRemoveMember = async (memberId: number) => {
     try {
       await teamService.removeTeamMember(memberId);
       message.success('Team member removed successfully');
       loadData();
-    } catch (error) {
-      message.error('Failed to remove team member');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to remove team member');
     }
   };
 
@@ -183,7 +183,7 @@ const TeamFiles: React.FC = () => {
                 <div key={member.id} className="flex justify-between items-center">
                   <div>
                     <div>{member.username}</div>
-                    <div className="text-sm text-gray-500">{member.role}</div>
+                    <div className="text-sm text-gray-500">{member.accessLevel}</div>
                   </div>
                   {user?.role === 'admin' && (
                     <Button 
@@ -225,16 +225,17 @@ const TeamFiles: React.FC = () => {
       >
         <div className="space-y-4">
           <Input
-            placeholder="Email address"
+            placeholder="Username"
             value={newMemberEmail}
             onChange={e => setNewMemberEmail(e.target.value)}
           />
           <select
             value={newMemberRole}
-            onChange={e => setNewMemberRole(e.target.value as 'admin' | 'member')}
+            onChange={e => setNewMemberRole(e.target.value as 'read' | 'write' | 'admin')}
             className="w-full border rounded px-3 py-2"
           >
-            <option value="member">Member</option>
+            <option value="read">Read Only</option>
+            <option value="write">Write</option>
             <option value="admin">Admin</option>
           </select>
         </div>

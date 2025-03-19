@@ -1,15 +1,17 @@
 import { api } from './api';
 
 export interface TeamMember {
-  id: string;
+  id: number;
+  userId: number;
   username: string;
-  email: string;
-  role: 'admin' | 'member';
-  avatarUrl?: string;
+  accessLevel: 'read' | 'write' | 'admin';
+  addedBy: number;
+  addedAt: string;
+  updatedAt: string;
 }
 
 export interface TeamFile {
-  id: string;
+  id: number;
   name: string;
   type: 'file' | 'folder';
   size?: number;
@@ -33,37 +35,37 @@ export interface ActivityLog {
 export const teamService = {
   // Team members
   async getTeamMembers(): Promise<TeamMember[]> {
-    const response = await api.get('/team/members');
+    const response = await api.get('/api/team/members');
     return response.data.members;
   },
 
-  async addTeamMember(email: string, role: 'admin' | 'member'): Promise<TeamMember> {
-    const response = await api.post('/team/members', { email, role });
+  async addTeamMember(username: string, accessLevel: 'read' | 'write' | 'admin'): Promise<TeamMember> {
+    const response = await api.post('/api/team/members', { username, accessLevel });
     return response.data.member;
   },
 
-  async removeTeamMember(memberId: string): Promise<void> {
-    await api.delete(`/team/members/${memberId}`);
+  async removeTeamMember(memberId: number): Promise<void> {
+    await api.delete(`/api/team/members/${memberId}`);
   },
 
   // Team files
   async getTeamFiles(path: string = '/'): Promise<TeamFile[]> {
-    const response = await api.get('/team/files', { params: { path } });
+    const response = await api.get('/api/team/files', { params: { path } });
     return response.data.files;
   },
 
   async createFolder(path: string, name: string): Promise<TeamFile> {
-    const response = await api.post('/team/files/folder', { path, name });
+    const response = await api.post('/api/team/files/folder', { path, name });
     return response.data.folder;
   },
 
-  async shareFile(fileId: string, users: string[]): Promise<void> {
-    await api.post(`/team/files/${fileId}/share`, { users });
+  async shareFile(fileId: number, users: string[]): Promise<void> {
+    await api.post(`/api/team/files/${fileId}/share`, { users });
   },
 
   // Activity logs
   async getRecentActivity(): Promise<ActivityLog[]> {
-    const response = await api.get('/team/activity');
+    const response = await api.get('/api/team/activity');
     return response.data.activities;
   }
 }; 

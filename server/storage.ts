@@ -148,6 +148,14 @@ export interface IStorage {
   getTrashFiles(): Promise<File[]>;
   restoreFile(id: number): Promise<boolean>;
   permanentlyDeleteFile(id: number): Promise<boolean>;
+
+  // Team operations
+  getTeamMembers(): Promise<TeamMember[]>;
+  addTeamMember(email: string, role: string): Promise<TeamMember>;
+  getTeamFiles(path: string): Promise<File[]>;
+  createTeamFolder(folderPath: string, name: string): Promise<StoredFolder>;
+  shareTeamFile(fileId: number, userIds: string[]): Promise<void>;
+  getTeamActivity(): Promise<ActivityLog[]>;
 }
 
 export class MemStorage implements IStorage {
@@ -779,6 +787,88 @@ export class MemStorage implements IStorage {
       console.error("Error permanently deleting file:", error);
       return false;
     }
+  }
+
+  // Team operations
+  async getTeamMembers(): Promise<TeamMember[]> {
+    return Array.from(this.teamMembers.values());
+  }
+
+  async addTeamMember(email: string, role: string): Promise<TeamMember> {
+    // First check if user exists
+    const user = await this.getUserByEmail(email);
+    if (!user) {
+      throw new Error('User not found');
+    }
+
+    // Check if user is already a team member
+    const existingMember = await this.getTeamMember(user.id);
+    if (existingMember) {
+      throw new Error('User is already a team member');
+    }
+
+    const id = this.teamMemberIdCounter++;
+    const teamMember: TeamMember = {
+      id,
+      userId: user.id,
+      accessLevel: role as 'read' | 'write' | 'admin',
+      addedBy: user.id, // This should be the current user's ID
+      addedAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    this.teamMembers.set(id, teamMember);
+    return teamMember;
+  }
+
+  async getTeamFiles(path: string = '/'): Promise<File[]> {
+    // Get all files and filter by path
+    return Array.from(this.files.values()).filter(file => 
+      file.path.startsWith(path) && !file.isDeleted
+    );
+  }
+
+  async createTeamFolder(folderPath: string, name: string): Promise<StoredFolder> {
+    const id = this.folderIdCounter++;
+    const folder: StoredFolder = {
+      id,
+      name,
+      path: path.join(folderPath, name),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      parentId: null // You might want to implement proper parent-child relationships
+    };
+
+    this.folders.set(id, folder);
+    return folder;
+  }
+
+  async shareTeamFile(fileId: number, userIds: string[]): Promise<void> {
+    const file = await this.getFile(fileId);
+    if (!file) {
+      throw new Error('File not found');
+    }
+
+    // Create file shares for each user
+    for (const userId of userIds) {
+      const user = await this.getUserByUsername(userId);
+      if (!user) continue;
+
+      await this.shareFile({
+        fileId,
+        userId: user.id,
+        accessLevel: 'read',
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
+    }
+  }
+
+  async getTeamActivity(): Promise<ActivityLog[]> {
+    // Get all activity logs and sort by timestamp descending
+    return Array.from(this.activityLogs.values())
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 50); // Limit to last 50 activities
   }
 }
 
