@@ -21,7 +21,7 @@ type VerifyFormValues = z.infer<typeof verifyFormSchema>;
 
 export default function MfaSetup() {
   const [, navigate] = useLocation();
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, updateAuthState } = useAuth();
   const [qrCodeUrl, setQrCodeUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<boolean>(false);
@@ -66,10 +66,10 @@ export default function MfaSetup() {
 
   // Load QR code when component mounts
   useEffect(() => {
-    if (isAuthenticated && !qrCodeUrl && !success) {
+    if (isAuthenticated && !qrCodeUrl && !success && !user?.mfaEnabled) {
       fetchQrCode();
     }
-  }, [isAuthenticated, qrCodeUrl, success]);
+  }, [isAuthenticated, qrCodeUrl, success, user?.mfaEnabled]);
 
   // Handle form submission
   const onSubmit = async (data: VerifyFormValues) => {
@@ -78,6 +78,7 @@ export default function MfaSetup() {
     
     try {
       const response = await apiRequest("POST", "/api/mfa/verify", {
+        userId: user?.id,
         token: data.token
       });
       
@@ -87,6 +88,9 @@ export default function MfaSetup() {
         description: "MFA has been successfully enabled for your account",
         variant: "default"
       });
+
+      // Refresh the user data to update MFA status
+      await updateAuthState(localStorage.getItem("token"));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Verification failed. Please try again.");
       toast({
@@ -100,11 +104,20 @@ export default function MfaSetup() {
   };
 
   const handleDisableMfa = async () => {
+    if (!user?.id) {
+      toast({
+        title: "Error",
+        description: "User not found. Please try logging in again.",
+        variant: "destructive"
+      });
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
     
     try {
-      const response = await apiRequest("POST", "/api/mfa/disable");
+      await apiRequest("POST", "/api/mfa/disable");
       
       toast({
         title: "Success",
@@ -112,11 +125,20 @@ export default function MfaSetup() {
         variant: "default"
       });
       
-      // Reset the state and fetch a new QR code
+      // Reset the state
       setSuccess(false);
       setQrCodeUrl(null);
-      fetchQrCode();
+      
+      // Refresh the user data to update MFA status
+      await updateAuthState(localStorage.getItem("token"));
+
+      // Switch to setup tab
+      const setupTab = document.querySelector('[value="setup"]') as HTMLButtonElement;
+      if (setupTab) {
+        setupTab.click();
+      }
     } catch (err) {
+      console.error("Error disabling MFA:", err);
       setError(err instanceof Error ? err.message : "Failed to disable MFA");
       toast({
         title: "Error",

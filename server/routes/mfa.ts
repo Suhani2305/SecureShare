@@ -2,12 +2,14 @@ import { Request, Response, Router } from "express";
 import { storage } from "../storage";
 import { MfaService } from "../mfa";
 import { verifyMfaSchema, setupMfaSchema } from "@shared/schema";
+import { authenticate } from "../middleware/auth";
+import jwt from "jsonwebtoken";
 
 const router = Router();
 const mfaService = new MfaService(storage);
 
 // Set up MFA for a user (generates a QR code)
-router.post("/setup", async (req: Request, res: Response) => {
+router.post("/setup", authenticate, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     
@@ -43,7 +45,7 @@ router.post("/setup", async (req: Request, res: Response) => {
 });
 
 // Verify and enable MFA for a user
-router.post("/verify", async (req: Request, res: Response) => {
+router.post("/verify", authenticate, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     const { token } = req.body;
@@ -73,7 +75,28 @@ router.post("/verify", async (req: Request, res: Response) => {
     });
     
     if (isValid) {
-      return res.status(200).json({ message: "MFA enabled successfully" });
+      // Get user data to generate token
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Generate new token with updated MFA status
+      const newToken = jwt.sign(
+        { 
+          id: user.id, 
+          username: user.username, 
+          role: user.role,
+          mfaEnabled: true 
+        },
+        JWT_SECRET,
+        { expiresIn: "24h" }
+      );
+
+      return res.status(200).json({ 
+        token: newToken,
+        message: "MFA enabled successfully" 
+      });
     } else {
       return res.status(400).json({ message: "Invalid verification code" });
     }
@@ -84,7 +107,7 @@ router.post("/verify", async (req: Request, res: Response) => {
 });
 
 // Disable MFA for a user
-router.post("/disable", async (req: Request, res: Response) => {
+router.post("/disable", authenticate, async (req: Request, res: Response) => {
   try {
     const userId = req.user?.id;
     
@@ -93,6 +116,24 @@ router.post("/disable", async (req: Request, res: Response) => {
     }
     
     await mfaService.disableMfa(userId);
+    
+    // Get user data to generate new token
+    const user = await storage.getUser(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Generate new token with updated MFA status
+    const newToken = jwt.sign(
+      { 
+        id: user.id, 
+        username: user.username, 
+        role: user.role,
+        mfaEnabled: false 
+      },
+      JWT_SECRET,
+      { expiresIn: "24h" }
+    );
     
     // Log the MFA disabling
     await storage.logActivity({
@@ -104,7 +145,10 @@ router.post("/disable", async (req: Request, res: Response) => {
       ipAddress: req.ip || null
     });
     
-    return res.status(200).json({ message: "MFA disabled successfully" });
+    return res.status(200).json({ 
+      token: newToken,
+      message: "MFA disabled successfully" 
+    });
   } catch (error) {
     console.error("Error disabling MFA:", error);
     return res.status(500).json({ message: "Failed to disable MFA" });

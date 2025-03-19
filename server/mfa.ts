@@ -72,13 +72,24 @@ export class MfaService {
         throw new Error("User not found");
       }
 
-      // Generate new secret
-      const { secret, qrCodeUrl } = await this.generateSecret(userId, user.username);
+      // Only generate a new secret if the user doesn't have one
+      if (!user.mfaSecret) {
+        // Generate new secret
+        const { secret, qrCodeUrl } = await this.generateSecret(userId, user.username);
 
-      // Store the secret temporarily (not enabled yet until verified)
-      await this.storage.updateUserMfaSecret(userId, secret.base32);
-
-      return { qrCodeUrl };
+        // Store the secret temporarily (not enabled yet until verified)
+        await this.storage.updateUserMfaSecret(userId, secret.base32);
+        
+        return { qrCodeUrl };
+      } else {
+        // If user already has a secret, generate QR code from existing secret
+        const secret = {
+          otpauth_url: `otpauth://totp/SecureFileManager:${user.username}?secret=${user.mfaSecret}&issuer=SecureFileManager`
+        };
+        const qrCodeUrl = await qrcode.toDataURL(secret.otpauth_url);
+        
+        return { qrCodeUrl };
+      }
     } catch (error) {
       console.error("Error setting up MFA:", error);
       throw error;
