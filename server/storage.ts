@@ -152,9 +152,21 @@ export interface IStorage {
   // Team operations
   getTeamMembers(): Promise<TeamMember[]>;
   addTeamMember(email: string, role: string): Promise<TeamMember>;
-  getTeamFiles(path: string): Promise<File[]>;
-  createTeamFolder(folderPath: string, name: string): Promise<StoredFolder>;
-  shareTeamFile(fileId: number, userIds: string[]): Promise<void>;
+  getTeamFiles(currentPath?: string): Promise<File[]>;
+  createTeamFolder(parentPath: string, name: string): Promise<StoredFolder>;
+  shareTeamFile(fileId: number, userEmails: string[]): Promise<void>;
+  getTeamActivity(): Promise<ActivityLog[]>;
+
+  // Team activity methods
+  logActivity(params: {
+    userId: number;
+    action: string;
+    resourceId: string;
+    resourceType: string;
+    details: any;
+    ipAddress: string | null;
+  }): Promise<ActivityLog>;
+
   getTeamActivity(): Promise<ActivityLog[]>;
 }
 
@@ -795,123 +807,191 @@ export class MemStorage implements IStorage {
   }
 
   async addTeamMember(email: string, role: string): Promise<TeamMember> {
-    // First check if user exists
-    const user = await this.getUserByEmail(email);
-    if (!user) {
-      throw new Error('User not found');
+    try {
+      // First check if user exists
+      const user = await this.getUserByEmail(email);
+      if (!user) {
+        throw new Error('User not found');
+      }
+
+      // Check if user is already a team member
+      const existingMember = await this.getTeamMember(user.id);
+      if (existingMember) {
+        throw new Error('User is already a team member');
+      }
+
+      const id = this.teamMemberIdCounter++;
+      const teamMember: TeamMember = {
+        id,
+        userId: user.id,
+        accessLevel: role as 'read' | 'write' | 'admin',
+        addedBy: user.id, // This should be the current user's ID
+        addedAt: new Date(),
+        updatedAt: new Date()
+      };
+
+      this.teamMembers.set(id, teamMember);
+      return teamMember;
+    } catch (error) {
+      console.error('Error adding team member:', error);
+      throw error;
     }
-
-    // Check if user is already a team member
-    const existingMember = await this.getTeamMember(user.id);
-    if (existingMember) {
-      throw new Error('User is already a team member');
-    }
-
-    const id = this.teamMemberIdCounter++;
-    const teamMember: TeamMember = {
-      id,
-      userId: user.id,
-      accessLevel: role as 'read' | 'write' | 'admin',
-      addedBy: user.id, // This should be the current user's ID
-      addedAt: new Date(),
-      updatedAt: new Date()
-    };
-
-    this.teamMembers.set(id, teamMember);
-    return teamMember;
   }
 
-  async getTeamFiles(path: string = '/'): Promise<File[]> {
+  async getTeamFiles(currentPath?: string): Promise<File[]> {
     try {
-      // Get all files and filter by path
+      // Get all files
       const allFiles = Array.from(this.files.values());
+      
+      // Filter files based on path and deleted status
       const teamFiles = allFiles.filter(file => {
-        // Only return files that:
-        // 1. Are not deleted
-        // 2. Match the requested path
-        // 3. Are either in root (if path is '/') or in the correct subfolder
-        const filePath = file.path || '/';
-        const isInPath = path === '/' ? 
-          filePath === '/' || !filePath.includes('/') : 
-          filePath.startsWith(path);
+        if (file.isDeleted) return false;
         
-        return !file.deleted && isInPath;
+        // For root path, return files without a folder
+        if (currentPath === '/') {
+          return !file.folderId;
+        }
+        
+        // For other paths, return files in the specified folder
+        const folder = this.folders.get(parseInt(currentPath));
+        return folder && file.folderId === folder.id;
       });
 
-      // Map files to include additional information
+      // Add additional file information
       return teamFiles.map(file => ({
         ...file,
-        type: file.mimeType?.includes('folder') ? 'folder' : 'file',
-        createdBy: this.users.get(file.ownerId)?.username || 'Unknown'
+        size: fs.statSync(path.join(this.uploadDir, file.path)).size,
+        type: this.getMimeType(file.name)
       }));
     } catch (error) {
       console.error('Error getting team files:', error);
-      return [];
+      throw error;
     }
   }
 
-  async createTeamFolder(folderPath: string, name: string): Promise<StoredFolder> {
+  private getMimeType(filename: string): string {
+    const ext = path.extname(filename).toLowerCase();
+    const mimeTypes: { [key: string]: string } = {
+      '.txt': 'text/plain',
+      '.pdf': 'application/pdf',
+      '.doc': 'application/msword',
+      '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      '.xls': 'application/vnd.ms-excel',
+      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.gif': 'image/gif'
+    };
+    return mimeTypes[ext] || 'application/octet-stream';
+  }
+
+  async createTeamFolder(parentPath: string, name: string): Promise<StoredFolder> {
     try {
+      // Validate folder name
+      if (!name || name.trim().length === 0) {
+        throw new Error('Folder name cannot be empty');
+      }
+
+      // Get parent folder if path is not root
+      let parentId: number | undefined;
+      if (parentPath !== '/') {
+        const parent = this.folders.get(parseInt(parentPath));
+        if (!parent) {
+          throw new Error('Parent folder not found');
+        }
+        parentId = parent.id;
+      }
+
+      // Create the folder
       const id = this.folderIdCounter++;
-      const fullPath = path.join(folderPath, name).replace(/\\/g, '/');
-      
+      const now = new Date();
       const folder: StoredFolder = {
         id,
-        name,
-        path: fullPath,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-        parentId: null
+        name: name.trim(),
+        parentId,
+        createdAt: now,
+        updatedAt: now,
+        deletedAt: null
       };
 
       this.folders.set(id, folder);
       return folder;
     } catch (error) {
       console.error('Error creating team folder:', error);
-      throw new Error('Failed to create folder');
+      throw error;
     }
   }
 
-  async shareTeamFile(fileId: number, userIds: string[]): Promise<void> {
-    const file = await this.getFile(fileId);
-    if (!file) {
-      throw new Error('File not found');
-    }
+  async shareTeamFile(fileId: number, userEmails: string[]): Promise<void> {
+    try {
+      // Get the file
+      const file = await this.getFile(fileId);
+      if (!file) {
+        throw new Error('File not found');
+      }
 
-    // Create file shares for each user
-    for (const userId of userIds) {
-      const user = await this.getUserByUsername(userId);
-      if (!user) continue;
+      // Get users by email
+      const users = await Promise.all(
+        userEmails.map(async email => {
+          const user = await this.getUserByEmail(email);
+          if (!user) {
+            throw new Error(`User not found: ${email}`);
+          }
+          return user;
+        })
+      );
 
-      await this.shareFile({
-        fileId,
-        userId: user.id,
-        accessLevel: 'read',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      });
+      // Create file shares
+      await Promise.all(
+        users.map(async user => {
+          const id = this.fileShareIdCounter++;
+          const share: FileShare = {
+            id,
+            fileId,
+            userId: user.id,
+            accessLevel: 'read',
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          this.fileShares.set(id, share);
+        })
+      );
+    } catch (error) {
+      console.error('Error sharing team file:', error);
+      throw error;
     }
   }
 
   async getTeamActivity(): Promise<ActivityLog[]> {
-    try {
-      // Get all activity logs and sort by timestamp descending
-      const logs = Array.from(this.activityLogs.values())
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, 50); // Limit to last 50 activities
+    return Array.from(this.activityLogs.values())
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 50); // Return last 50 activities
+  }
 
-      // Enrich logs with user information
-      return await Promise.all(logs.map(async log => {
-        const user = await this.getUser(parseInt(log.userId));
-        return {
-          ...log,
-          username: user?.username || 'Unknown User'
-        };
-      }));
-    } catch (error) {
-      console.error('Error getting team activity:', error);
-      return [];
-    }
+  // Team activity methods
+  async logActivity(params: {
+    userId: number;
+    action: string;
+    resourceId: string;
+    resourceType: string;
+    details: any;
+    ipAddress: string | null;
+  }): Promise<ActivityLog> {
+    const id = this.activityLogIdCounter++;
+    const now = new Date();
+    const log: ActivityLog = {
+      id,
+      userId: params.userId,
+      action: params.action,
+      resourceId: params.resourceId,
+      resourceType: params.resourceType,
+      details: params.details,
+      ipAddress: params.ipAddress,
+      createdAt: now
+    };
+    this.activityLogs.set(id, log);
+    return log;
   }
 }
 

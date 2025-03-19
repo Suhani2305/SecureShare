@@ -1,6 +1,6 @@
 import { Request, Response, Router } from "express";
 import { storage } from "../storage";
-import { authenticate } from "../middleware/auth";
+import { authenticateJwt } from "../middleware/auth";
 import { z } from "zod";
 import path from "path";
 import fs from "fs/promises";
@@ -23,7 +23,7 @@ const shareFileSchema = z.object({
 });
 
 // Get team members
-router.get("/members", authenticate, async (req: Request, res: Response) => {
+router.get("/members", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const members = await storage.getTeamMembers();
     return res.status(200).json({ members });
@@ -34,7 +34,7 @@ router.get("/members", authenticate, async (req: Request, res: Response) => {
 });
 
 // Add team member
-router.post("/members", authenticate, async (req: Request, res: Response) => {
+router.post("/members", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const result = addMemberSchema.safeParse(req.body);
     if (!result.success) {
@@ -65,7 +65,7 @@ router.post("/members", authenticate, async (req: Request, res: Response) => {
 });
 
 // Remove team member
-router.delete("/members/:id", authenticate, async (req: Request, res: Response) => {
+router.delete("/members/:id", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const memberId = parseInt(req.params.id);
     await storage.removeTeamMember(memberId);
@@ -88,7 +88,7 @@ router.delete("/members/:id", authenticate, async (req: Request, res: Response) 
 });
 
 // Get team files
-router.get("/files", authenticate, async (req: Request, res: Response) => {
+router.get("/files", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const currentPath = req.query.path as string || "/";
     const files = await storage.getTeamFiles(currentPath);
@@ -100,7 +100,7 @@ router.get("/files", authenticate, async (req: Request, res: Response) => {
 });
 
 // Create folder
-router.post("/files/folder", authenticate, async (req: Request, res: Response) => {
+router.post("/files/folder", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const result = createFolderSchema.safeParse(req.body);
     if (!result.success) {
@@ -131,7 +131,7 @@ router.post("/files/folder", authenticate, async (req: Request, res: Response) =
 });
 
 // Share file
-router.post("/files/:id/share", authenticate, async (req: Request, res: Response) => {
+router.post("/files/:id/share", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const fileId = parseInt(req.params.id);
     const result = shareFileSchema.safeParse(req.body);
@@ -163,7 +163,7 @@ router.post("/files/:id/share", authenticate, async (req: Request, res: Response
 });
 
 // Get recent activity
-router.get("/activity", authenticate, async (req: Request, res: Response) => {
+router.get("/activity", authenticateJwt, async (req: Request, res: Response) => {
   try {
     const activities = await storage.getTeamActivity();
     return res.status(200).json({ activities });
