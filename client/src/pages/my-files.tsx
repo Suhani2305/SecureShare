@@ -171,9 +171,24 @@ export default function MyFiles() {
     setShowMobileSidebar(!showMobileSidebar);
   };
   
-  const handleDeleteFile = (fileId: number) => {
-    if (confirm("Are you sure you want to delete this file?")) {
-      deleteMutation.mutate(fileId);
+  const handleDeleteFile = async (fileId: number) => {
+    if (confirm("Are you sure you want to delete this file? It will be moved to trash.")) {
+      try {
+        await apiRequest("DELETE", `/api/files/${fileId}`);
+        toast({
+          title: "File deleted",
+          description: "The file has been moved to trash",
+        });
+        
+        // Refresh the file list
+        queryClient.invalidateQueries({ queryKey: [API_ENDPOINTS.FILES] });
+      } catch (error) {
+        toast({
+          title: "Error",
+          description: "Failed to delete the file: " + (error instanceof Error ? error.message : "Unknown error"),
+          variant: "destructive",
+        });
+      }
     }
   };
   
@@ -310,6 +325,29 @@ export default function MyFiles() {
     
     return true;
   });
+  
+  const handleDownload = async (file: FileItem) => {
+    try {
+      const response = await apiRequest("GET", `/api/files/${file.id}/download`);
+      if (!response.ok) throw new Error('Download failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.originalName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to download file",
+        variant: "destructive",
+      });
+    }
+  };
   
   return (
     <div className="bg-gray-100 font-sans h-screen flex overflow-hidden">
@@ -645,7 +683,7 @@ export default function MyFiles() {
                                 variant="ghost" 
                                 size="icon" 
                                 title="Download"
-                                onClick={() => window.open(`/api/files/${file.id}/download`, '_blank')}
+                                onClick={() => handleDownload(file)}
                               >
                                 <Download className="h-4 w-4 text-gray-500 hover:text-primary" />
                               </Button>

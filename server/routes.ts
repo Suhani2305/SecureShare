@@ -48,9 +48,30 @@ const storage_config = multer.diskStorage({
 const upload = multer({ 
   storage: storage_config,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB limit
+    fileSize: 100 * 1024 * 1024 // 100MB limit
   }
 });
+
+// Authentication middleware
+const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: "Invalid token" });
+    }
+    req.user = user as { id: number; username: string; role: string };
+    next();
+  });
+};
+
+// Create Express app
+const app = express();
 
 // Authentication middleware
 const authenticate = (req: Request, res: Response, next: NextFunction) => {
@@ -446,7 +467,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         originalName: file.originalname,
         mimeType: file.mimetype,
         size: file.size,
-        path: filePath,
+        path: file.filename,
         encrypted: encrypt,
         encryptionIV: encryptionDetails?.iv,
         encryptionTag: encryptionDetails?.authTag,
@@ -1357,3 +1378,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
   return httpServer;
 }
+
+// Trash operations
+app.get("/api/trash", authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const trashedFiles = await storage.getFilesByOwnerId(req.user!.id, true);
+    res.json(trashedFiles);
+  } catch (error) {
+    console.error("Error getting trash files:", error);
+    res.status(500).json({ error: "Failed to get trash files" });
+  }
+});
+
+app.post("/api/trash/:id/restore", authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const success = await storage.restoreFile(id);
+    if (success) {
+      res.json({ message: "File restored successfully" });
+    } else {
+      res.status(404).json({ error: "File not found or not in trash" });
+    }
+  } catch (error) {
+    console.error("Error restoring file:", error);
+    res.status(500).json({ error: "Failed to restore file" });
+  }
+});
+
+app.delete("/api/trash/:id", authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const id = parseInt(req.params.id);
+    const success = await storage.permanentlyDeleteFile(id);
+    if (success) {
+      res.json({ message: "File permanently deleted" });
+    } else {
+      res.status(404).json({ error: "File not found" });
+    }
+  } catch (error) {
+    console.error("Error permanently deleting file:", error);
+    res.status(500).json({ error: "Failed to permanently delete file" });
+  }
+});

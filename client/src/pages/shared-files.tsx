@@ -2,12 +2,15 @@ import { useState } from "react";
 import { Sidebar } from "@/components/ui/sidebar";
 import { Header } from "@/components/ui/header";
 import { Button } from "@/components/ui/button";
-import { Download, Filter, List } from "lucide-react";
+import { Download, Filter, List, Share2, Trash2 } from "lucide-react";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { FileIcon } from "@/components/file/file-icon";
 import { format } from "date-fns";
 import { Input } from "@/components/ui/input";
+import { toast } from "@/components/ui/use-toast";
+import { ShareModal } from "@/components/modals/share-modal";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface FileShare {
   file: {
@@ -42,6 +45,8 @@ function formatFileSize(bytes: number): string {
 export default function SharedFiles() {
   const [showMobileSidebar, setShowMobileSidebar] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedFile, setSelectedFile] = useState<FileShare | null>(null);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   
   const { data: sharedFiles, isLoading, error } = useQuery<FileShare[]>({
     queryKey: ["/api/shared-files"],
@@ -51,8 +56,63 @@ export default function SharedFiles() {
     item.file.originalName.toLowerCase().includes(searchQuery.toLowerCase())
   );
   
+  const deleteMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      return apiRequest("DELETE", `/api/files/${fileId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "File deleted",
+        description: "The file has been moved to trash",
+      });
+      
+      queryClient.invalidateQueries({ queryKey: ["/api/shared-files"] });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: "Failed to delete the file: " + (error instanceof Error ? error.message : "Unknown error"),
+        variant: "destructive",
+      });
+    },
+  });
+  
+  const handleDeleteFile = (fileId: number) => {
+    if (confirm("Are you sure you want to delete this file? It will be moved to trash.")) {
+      deleteMutation.mutate(fileId);
+    }
+  };
+
+  const handleShareFile = (file: FileShare) => {
+    setSelectedFile(file);
+    setIsShareModalOpen(true);
+  };
+  
   const handleMenuClick = () => {
     setShowMobileSidebar(!showMobileSidebar);
+  };
+  
+  const handleDownload = async (file: any) => {
+    try {
+      const response = await apiRequest("GET", `/api/files/${file.id}/download`);
+      if (!response.ok) throw new Error('Download failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.originalName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to download file",
+        variant: "destructive",
+      });
+    }
   };
   
   return (
@@ -165,9 +225,26 @@ export default function SharedFiles() {
                                 variant="ghost" 
                                 size="icon" 
                                 title="Download"
-                                onClick={() => window.open(`/api/files/${item.file.id}/download`, '_blank')}
+                                onClick={() => handleDownload(item.file)}
                               >
                                 <Download className="h-4 w-4 text-gray-500 hover:text-primary" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Share"
+                                className="mx-1"
+                                onClick={() => handleShareFile(item)}
+                              >
+                                <Share2 className="h-4 w-4 text-gray-500 hover:text-primary" />
+                              </Button>
+                              <Button 
+                                variant="ghost" 
+                                size="icon" 
+                                title="Delete"
+                                onClick={() => handleDeleteFile(item.file.id)}
+                              >
+                                <Trash2 className="h-4 w-4 text-gray-500 hover:text-red-500" />
                               </Button>
                             </div>
                           </td>
@@ -181,6 +258,14 @@ export default function SharedFiles() {
           </Card>
         </main>
       </div>
+
+      {selectedFile && (
+        <ShareModal
+          file={selectedFile.file}
+          isOpen={isShareModalOpen}
+          onClose={() => setIsShareModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

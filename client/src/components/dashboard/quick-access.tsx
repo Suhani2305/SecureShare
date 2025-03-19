@@ -1,75 +1,108 @@
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
-import { MoreHorizontal } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { FileIcon } from "../file/file-icon";
 import { Button } from "@/components/ui/button";
-
-export interface QuickAccessFile {
-  id: number;
-  name: string;
-  originalName: string;
-  mimeType: string;
-  size: number;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  
-  return parseFloat((bytes / Math.pow(1024, i)).toFixed(1)) + ' ' + sizes[i];
-}
+import { Download } from "lucide-react";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/components/ui/use-toast";
+import { useAuth } from "@/utils/auth";
 
 export function QuickAccess() {
-  const { data: files, isLoading, error } = useQuery<QuickAccessFile[]>({
+  const { toast } = useToast();
+  const { token } = useAuth();
+  
+  const { data: files, isLoading } = useQuery({
     queryKey: ["/api/files"],
+    enabled: !!token,
+    queryFn: async () => {
+      const response = await apiRequest("/api/files");
+      if (!response.ok) {
+        throw new Error("Failed to fetch files");
+      }
+      return response.json();
+    },
   });
-  
-  const recentFiles = files?.slice(0, 6) || [];
-  
+
+  const handleDownload = async (file: any) => {
+    try {
+      const response = await fetch(`/api/files/${file.id}/download`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to download file");
+      }
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.originalName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      toast({
+        title: "Success",
+        description: "File downloaded successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to download file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Get the 5 most recently accessed files
+  const recentFiles = files?.slice(0, 5) || [];
+
   return (
-    <Card className="overflow-hidden">
+    <Card>
       <CardHeader className="flex justify-between items-center p-5 border-b border-gray-200">
         <h2 className="text-lg font-semibold">Quick Access</h2>
-        <Button variant="ghost" size="icon">
-          <MoreHorizontal className="h-5 w-5 text-gray-500" />
-        </Button>
       </CardHeader>
-      <CardContent className="p-5">
+      <CardContent className="p-0">
         {isLoading && (
-          <div className="flex justify-center py-4">
+          <div className="flex justify-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
           </div>
         )}
         
-        {error && (
-          <div className="text-center py-4 text-red-500">
-            Failed to load files
+        {recentFiles.length === 0 && !isLoading && (
+          <div className="text-center py-8 text-gray-500">
+            No recent files
           </div>
         )}
         
-        {files && files.length === 0 && (
-          <div className="text-center py-4 text-gray-500">
-            No files available. Upload some files to see them here.
-          </div>
-        )}
-        
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-          {recentFiles.map((file) => (
-            <a 
-              key={file.id} 
-              href={`/api/files/${file.id}/download`}
-              className="p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition cursor-pointer flex flex-col items-center text-center"
-            >
-              <div className="text-3xl mb-2">
-                <FileIcon mimeType={file.mimeType} size={36} />
+        {recentFiles.length > 0 && (
+          <div className="divide-y">
+            {recentFiles.map((file) => (
+              <div key={file.id} className="flex items-center p-4 hover:bg-gray-50">
+                <FileIcon mimeType={file.mimeType} size={32} />
+                <div className="ml-3 flex-1">
+                  <p className="font-medium">{file.originalName}</p>
+                  <p className="text-sm text-gray-500">
+                    Last accessed {new Date(file.updatedAt).toLocaleDateString()}
+                  </p>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="icon"
+                  onClick={() => handleDownload(file)}
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </Button>
               </div>
-              <p className="text-sm font-medium truncate w-full">{file.originalName}</p>
-              <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
-            </a>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </CardContent>
     </Card>
   );

@@ -1,43 +1,80 @@
-
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { FileItem } from "@/types";
 import { FileIcon } from "../file/file-icon";
 import { Button } from "@/components/ui/button";
 import { RefreshCw, Trash2 } from "lucide-react";
 import { format } from "date-fns";
 import { useAuth } from "@/utils/auth";
+import { useToast } from "@/components/ui/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 export function Trash() {
-  const { token } = useAuth();
-
-  const { token } = useAuth();
-  const { data: files, isLoading, error } = useQuery<FileItem[]>({
-    queryKey: ["trash"],
-    enabled: !!token,
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { data: files, isLoading } = useQuery({
+    queryKey: ["/api/trash"],
     queryFn: async () => {
-      const response = await fetch("/api/trash", {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      });
+      const response = await apiRequest("/api/trash");
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.message || "Failed to fetch trash");
       }
       return response.json();
-    }
-    enabled: !!token,
-    queryFn: async () => {
-      const response = await fetch("/api/trash", {
-        headers: {
-          Authorization: `Bearer ${token}`
-        }
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const response = await apiRequest(`/api/trash/${fileId}/restore`, {
+        method: "POST",
       });
-      if (!response.ok) throw new Error("Failed to fetch deleted files");
-      return response.json();
-    }
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to restore file");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trash"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/files"] });
+      toast({
+        title: "Success",
+        description: "File restored successfully",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to restore file",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (fileId: number) => {
+      const response = await apiRequest(`/api/trash/${fileId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to delete file");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/trash"] });
+      toast({
+        title: "Success",
+        description: "File permanently deleted",
+      });
+    },
+    onError: (error) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete file",
+        variant: "destructive",
+      });
+    },
   });
 
   return (
@@ -66,14 +103,24 @@ export function Trash() {
                 <div className="ml-3 flex-1">
                   <p className="font-medium">{file.originalName}</p>
                   <p className="text-sm text-gray-500">
-                    Deleted {format(new Date(file.createdAt), 'MMM d, yyyy')}
+                    Deleted {format(new Date(file.updatedAt), 'MMM d, yyyy')}
                   </p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="ghost" size="icon" title="Restore">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    title="Restore"
+                    onClick={() => restoreMutation.mutate(file.id)}
+                  >
                     <RefreshCw className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" title="Delete permanently">
+                  <Button 
+                    variant="ghost" 
+                    size="icon" 
+                    title="Delete permanently"
+                    onClick={() => deleteMutation.mutate(file.id)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>

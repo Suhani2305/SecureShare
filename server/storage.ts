@@ -143,6 +143,11 @@ export interface IStorage {
 
   // Folder sharing
   shareFolderWithUser(params: { folderId: number; userId: number; accessLevel: string; expiresAt?: Date }): Promise<FolderShare>;
+
+  // Trash operations
+  getTrashFiles(): Promise<File[]>;
+  restoreFile(id: number): Promise<boolean>;
+  permanentlyDeleteFile(id: number): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -287,7 +292,9 @@ export class MemStorage implements IStorage {
     
     // Add physical file info
     return userFiles.map(file => {
-      const filePath = file.path; // Use the path directly without joining with uploadDir
+      // Extract just the filename from the full path
+      const fileName = path.basename(file.path);
+      const filePath = path.join(this.uploadDir, fileName);
       const stats = fs.statSync(filePath);
       console.log("Physical file info:", {
         fileId: file.id,
@@ -383,27 +390,22 @@ export class MemStorage implements IStorage {
     };
   }
 
-  async deleteFile(id: number): Promise<boolean> {
-    const file = await this.getFile(id);
-    if (!file) return false;
-    
+  async deleteFile(fileId: number): Promise<boolean> {
     try {
-      // Delete the physical file
-      const filePath = path.join(this.uploadDir, file.path);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
+      const file = this.files.get(fileId);
+      if (!file) {
+        return false;
       }
+
+      // Instead of deleting, mark the file as deleted
+      file.isDeleted = true;
+      file.updatedAt = new Date().toISOString();
       
-      // Remove from maps
-      this.files.delete(id);
+      // Update the file in the database
+      this.files.set(fileId, file);
       
-      // Delete associated file shares
-      const sharesToDelete = Array.from(this.fileShares.values())
-        .filter(share => share.fileId === id);
-      
-      for (const share of sharesToDelete) {
-        this.fileShares.delete(share.id);
-      }
+      // Log the deletion
+      console.log(`File ${fileId} marked as deleted`);
       
       return true;
     } catch (error) {
@@ -695,6 +697,88 @@ export class MemStorage implements IStorage {
     };
     this.folderShares.set(id, share);
     return share;
+  }
+
+  // Trash operations
+  async getTrashFiles(): Promise<File[]> {
+    try {
+      // Get all files marked as deleted
+      const trashedFiles = Array.from(this.files.values())
+        .filter(file => file.isDeleted)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      
+      // Add physical file info
+      return trashedFiles.map(file => {
+        // Extract just the filename from the full path
+        const fileName = path.basename(file.path);
+        const filePath = path.join(this.uploadDir, fileName);
+        const stats = fs.statSync(filePath);
+        return {
+          ...file,
+          size: stats.size
+        };
+      });
+    } catch (error) {
+      console.error("Error getting trash files:", error);
+      return [];
+    }
+  }
+
+  async restoreFile(fileId: number): Promise<boolean> {
+    try {
+      const file = this.files.get(fileId);
+      if (!file || !file.isDeleted) {
+        return false;
+      }
+
+      // Restore the file by marking it as not deleted
+      file.isDeleted = false;
+      file.updatedAt = new Date().toISOString();
+      
+      // Update the file in the database
+      this.files.set(fileId, file);
+      
+      // Log the restoration
+      console.log(`File ${fileId} restored from trash`);
+      
+      return true;
+    } catch (error) {
+      console.error("Error restoring file:", error);
+      return false;
+    }
+  }
+
+  async permanentlyDeleteFile(fileId: number): Promise<boolean> {
+    try {
+      const file = this.files.get(fileId);
+      if (!file) {
+        return false;
+      }
+
+      // Delete the physical file
+      const filePath = path.join(this.uploadDir, file.path);
+      if (fs.existsSync(filePath)) {
+        await fs.promises.unlink(filePath);
+      }
+
+      // Remove from internal maps
+      this.files.delete(fileId);
+      
+      // Remove any shares associated with this file
+      for (const [shareId, share] of this.fileShares.entries()) {
+        if (share.fileId === fileId) {
+          this.fileShares.delete(shareId);
+        }
+      }
+      
+      // Log the permanent deletion
+      console.log(`File ${fileId} permanently deleted`);
+      
+      return true;
+    } catch (error) {
+      console.error("Error permanently deleting file:", error);
+      return false;
+    }
   }
 }
 

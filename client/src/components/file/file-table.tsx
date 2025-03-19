@@ -93,22 +93,27 @@ export function FileTable({
 
   const deleteMutation = useMutation({
     mutationFn: async (fileId: number) => {
-      await apiRequest(`/api/files/${fileId}`, {
-        method: "DELETE",
+      const response = await apiRequest(`/api/files/${fileId}/trash`, {
+        method: "POST",
       });
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to move file to trash");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/files"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trash"] });
       toast({
         title: "Success",
-        description: "File deleted successfully",
+        description: "File moved to trash",
       });
       setDeleteModalOpen(false);
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to delete file",
+        description: error instanceof Error ? error.message : "Failed to move file to trash",
         variant: "destructive",
       });
     },

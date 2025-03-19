@@ -62,19 +62,19 @@ export default function Dashboard() {
           </div>
           
           {/* Storage Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid gap-4 md:grid-cols-3">
             <StorageStats />
             <FileStats 
               total={files?.length || 0}
-              documents={files?.filter(f => f.type.startsWith('application/')).length || 0}
-              images={files?.filter(f => f.type.startsWith('image/')).length || 0}
-              other={files?.filter(f => !f.type.startsWith('application/') && !f.type.startsWith('image/')).length || 0}
+              documents={files?.filter(f => f.mimeType.startsWith('application/')).length || 0}
+              images={files?.filter(f => f.mimeType.startsWith('image/')).length || 0}
+              other={files?.filter(f => !f.mimeType.startsWith('application/') && !f.mimeType.startsWith('image/')).length || 0}
             />
             <SecurityStats />
           </div>
           
           {/* Recent Activity and Quick Access */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+          <div className="grid gap-4 md:grid-cols-2">
             <ActivityList />
             <QuickAccess />
           </div>

@@ -9,12 +9,15 @@ import { apiRequest } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface ShareModalProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  file: any;
+  isOpen: boolean;
+  onClose: () => void;
+  file: {
+    id: number;
+    originalName: string;
+  };
 }
 
-export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
+export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState("");
@@ -23,7 +26,7 @@ export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
 
   const shareMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest(`/api/files/${file.id}/share`, {
+      const response = await apiRequest(`/api/files/${file.id}/share`, {
         method: "POST",
         body: JSON.stringify({
           userId: parseInt(userId),
@@ -31,6 +34,12 @@ export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
           expiresAt: expiresAt || undefined,
         }),
       });
+
+      if (!response.ok) {
+        throw new Error("Failed to share file");
+      }
+
+      return response.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/files"] });
@@ -38,12 +47,12 @@ export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
         title: "Success",
         description: "File shared successfully",
       });
-      onOpenChange(false);
+      onClose();
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to share file",
+        description: "Failed to share file: " + (error instanceof Error ? error.message : "Unknown error"),
         variant: "destructive",
       });
     },
@@ -62,7 +71,7 @@ export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Share File</DialogTitle>
@@ -103,7 +112,7 @@ export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
           </div>
         </div>
         <div className="flex justify-end space-x-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button onClick={handleShare} disabled={shareMutation.isPending}>

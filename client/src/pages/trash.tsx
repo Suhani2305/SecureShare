@@ -17,13 +17,17 @@ import {
 } from "@/components/ui/alert-dialog";
 
 interface TrashedFile {
-  id: string;
+  id: number;
   name: string;
+  originalName: string;
+  mimeType: string;
   size: number;
-  type: string;
+  path: string;
+  encrypted: boolean;
+  ownerId: number;
   createdAt: string;
   updatedAt: string;
-  deletedAt: string;
+  isDeleted: boolean;
 }
 
 export default function TrashFiles() {
@@ -31,7 +35,7 @@ export default function TrashFiles() {
   const queryClient = useQueryClient();
   
   const { data: trashedFiles, isLoading } = useQuery<TrashedFile[]>({
-    queryKey: ["/api/files/trash"],
+    queryKey: ["/api/trash"],
     onError: () => {
       toast({
         title: "Error",
@@ -43,13 +47,13 @@ export default function TrashFiles() {
 
   const restoreMutation = useMutation({
     mutationFn: async (fileId: string) => {
-      const response = await fetch(`/api/files/${fileId}/restore`, {
+      const response = await fetch(`/api/trash/${fileId}/restore`, {
         method: "POST",
       });
       if (!response.ok) throw new Error("Failed to restore file");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/files/trash"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trash"] });
       toast({
         title: "Success",
         description: "File restored successfully",
@@ -66,13 +70,13 @@ export default function TrashFiles() {
 
   const deleteMutation = useMutation({
     mutationFn: async (fileId: string) => {
-      const response = await fetch(`/api/files/${fileId}`, {
+      const response = await fetch(`/api/trash/${fileId}`, {
         method: "DELETE",
       });
       if (!response.ok) throw new Error("Failed to delete file");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/files/trash"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trash"] });
       toast({
         title: "Success",
         description: "File permanently deleted",
