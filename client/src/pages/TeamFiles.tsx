@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { teamService, TeamFile, TeamMember, ActivityLog } from '../services/team';
 import { useAuth } from '../contexts/AuthContext';
-import { Button, Input, Table, Modal, message } from 'antd';
-import { SearchOutlined, ShareAltOutlined, FolderOutlined, FileOutlined } from '@ant-design/icons';
+import { Button, Input, Table, Modal, message, Empty, Spin } from 'antd';
+import { SearchOutlined, ShareAltOutlined, FolderOutlined, FileOutlined, LoadingOutlined } from '@ant-design/icons';
 
 const TeamFiles: React.FC = () => {
   const [files, setFiles] = useState<TeamFile[]>([]);
@@ -11,9 +11,9 @@ const TeamFiles: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'name' | 'date'>('date');
   const [currentPath, setCurrentPath] = useState('/');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [isAddMemberModalVisible, setIsAddMemberModalVisible] = useState(false);
-  const [newMemberEmail, setNewMemberEmail] = useState('');
+  const [newMemberUsername, setNewMemberUsername] = useState('');
   const [newMemberRole, setNewMemberRole] = useState<'read' | 'write' | 'admin'>('read');
   const { user } = useAuth();
 
@@ -31,11 +31,11 @@ const TeamFiles: React.FC = () => {
         teamService.getRecentActivity()
       ]);
       
-      setFiles(filesData);
-      setMembers(membersData);
-      setActivities(activitiesData);
-    } catch (error) {
-      message.error('Failed to load team data');
+      setFiles(filesData || []);
+      setMembers(membersData || []);
+      setActivities(activitiesData || []);
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to load team data');
       console.error(error);
     } finally {
       setIsLoading(false);
@@ -45,7 +45,8 @@ const TeamFiles: React.FC = () => {
   // File operations
   const handleFileClick = (file: TeamFile) => {
     if (file.type === 'folder') {
-      setCurrentPath(file.path);
+      const newPath = file.path.startsWith('/') ? file.path : `/${file.path}`;
+      setCurrentPath(newPath);
     }
   };
 
@@ -57,21 +58,28 @@ const TeamFiles: React.FC = () => {
       await teamService.createFolder(currentPath, name);
       message.success('Folder created successfully');
       loadData();
-    } catch (error) {
-      message.error('Failed to create folder');
+    } catch (error: any) {
+      message.error(error.response?.data?.message || 'Failed to create folder');
     }
   };
 
-  const handleShare = async (fileId: string) => {
+  const handleShare = async (fileId: number) => {
     // Implement sharing logic
+    message.info('Sharing functionality coming soon');
   };
 
   // Team member operations
   const handleAddMember = async () => {
+    if (!newMemberUsername.trim()) {
+      message.error('Please enter a username');
+      return;
+    }
+
     try {
-      await teamService.addTeamMember(newMemberEmail, newMemberRole as 'read' | 'write' | 'admin');
+      await teamService.addTeamMember(newMemberUsername, newMemberRole);
       message.success('Team member added successfully');
       setIsAddMemberModalVisible(false);
+      setNewMemberUsername('');
       loadData();
     } catch (error: any) {
       message.error(error.response?.data?.message || 'Failed to add team member');
@@ -107,7 +115,7 @@ const TeamFiles: React.FC = () => {
       key: 'name',
       render: (text: string, record: TeamFile) => (
         <div onClick={() => handleFileClick(record)} style={{ cursor: 'pointer' }}>
-          {record.type === 'folder' ? <FolderOutlined /> : <FileOutlined />} {text}
+          {record.type === 'folder' ? <FolderOutlined className="mr-2" /> : <FileOutlined className="mr-2" />} {text}
         </div>
       ),
     },
@@ -136,10 +144,15 @@ const TeamFiles: React.FC = () => {
     },
   ];
 
+  const antIcon = <LoadingOutlined style={{ fontSize: 24 }} spin />;
+
   return (
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Team Files</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Team Files</h1>
+          {isLoading && <Spin indicator={antIcon} />}
+        </div>
         <div className="flex gap-4">
           <Input
             placeholder="Search files..."
@@ -161,12 +174,22 @@ const TeamFiles: React.FC = () => {
 
       <div className="grid grid-cols-4 gap-6">
         <div className="col-span-3">
-          <Table
-            dataSource={sortedFiles}
-            columns={columns}
-            loading={isLoading}
-            rowKey="id"
-          />
+          <div className="bg-white rounded-lg shadow">
+            {!isLoading && files.length === 0 ? (
+              <Empty 
+                description="No files found" 
+                className="py-8"
+              />
+            ) : (
+              <Table
+                dataSource={sortedFiles}
+                columns={columns}
+                loading={isLoading}
+                rowKey="id"
+                pagination={{ pageSize: 10 }}
+              />
+            )}
+          </div>
         </div>
 
         <div className="space-y-6">
@@ -179,22 +202,26 @@ const TeamFiles: React.FC = () => {
               </Button>
             </div>
             <div className="space-y-2">
-              {members.map(member => (
-                <div key={member.id} className="flex justify-between items-center">
-                  <div>
-                    <div>{member.username}</div>
-                    <div className="text-sm text-gray-500">{member.accessLevel}</div>
+              {!isLoading && members.length === 0 ? (
+                <Empty description="No team members" />
+              ) : (
+                members.map(member => (
+                  <div key={member.id} className="flex justify-between items-center p-2 hover:bg-gray-50 rounded">
+                    <div>
+                      <div className="font-medium">{member.username}</div>
+                      <div className="text-sm text-gray-500">{member.accessLevel}</div>
+                    </div>
+                    {user?.role === 'admin' && (
+                      <Button 
+                        danger 
+                        onClick={() => handleRemoveMember(member.id)}
+                      >
+                        Remove
+                      </Button>
+                    )}
                   </div>
-                  {user?.role === 'admin' && (
-                    <Button 
-                      danger 
-                      onClick={() => handleRemoveMember(member.id)}
-                    >
-                      Remove
-                    </Button>
-                  )}
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -202,15 +229,19 @@ const TeamFiles: React.FC = () => {
           <div className="bg-white p-4 rounded-lg shadow">
             <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
             <div className="space-y-2">
-              {activities.map(activity => (
-                <div key={activity.id} className="text-sm">
-                  <div className="font-medium">{activity.username}</div>
-                  <div>{activity.action}</div>
-                  <div className="text-gray-500">
-                    {new Date(activity.timestamp).toLocaleString()}
+              {!isLoading && activities.length === 0 ? (
+                <Empty description="No recent activity" />
+              ) : (
+                activities.map(activity => (
+                  <div key={activity.id} className="p-2 hover:bg-gray-50 rounded">
+                    <div className="font-medium">{activity.username}</div>
+                    <div>{activity.action}</div>
+                    <div className="text-sm text-gray-500">
+                      {new Date(activity.timestamp).toLocaleString()}
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -221,13 +252,16 @@ const TeamFiles: React.FC = () => {
         title="Add Team Member"
         open={isAddMemberModalVisible}
         onOk={handleAddMember}
-        onCancel={() => setIsAddMemberModalVisible(false)}
+        onCancel={() => {
+          setIsAddMemberModalVisible(false);
+          setNewMemberUsername('');
+        }}
       >
         <div className="space-y-4">
           <Input
             placeholder="Username"
-            value={newMemberEmail}
-            onChange={e => setNewMemberEmail(e.target.value)}
+            value={newMemberUsername}
+            onChange={e => setNewMemberUsername(e.target.value)}
           />
           <select
             value={newMemberRole}

@@ -822,25 +822,54 @@ export class MemStorage implements IStorage {
   }
 
   async getTeamFiles(path: string = '/'): Promise<File[]> {
-    // Get all files and filter by path
-    return Array.from(this.files.values()).filter(file => 
-      file.path.startsWith(path) && !file.isDeleted
-    );
+    try {
+      // Get all files and filter by path
+      const allFiles = Array.from(this.files.values());
+      const teamFiles = allFiles.filter(file => {
+        // Only return files that:
+        // 1. Are not deleted
+        // 2. Match the requested path
+        // 3. Are either in root (if path is '/') or in the correct subfolder
+        const filePath = file.path || '/';
+        const isInPath = path === '/' ? 
+          filePath === '/' || !filePath.includes('/') : 
+          filePath.startsWith(path);
+        
+        return !file.deleted && isInPath;
+      });
+
+      // Map files to include additional information
+      return teamFiles.map(file => ({
+        ...file,
+        type: file.mimeType?.includes('folder') ? 'folder' : 'file',
+        createdBy: this.users.get(file.ownerId)?.username || 'Unknown'
+      }));
+    } catch (error) {
+      console.error('Error getting team files:', error);
+      return [];
+    }
   }
 
   async createTeamFolder(folderPath: string, name: string): Promise<StoredFolder> {
-    const id = this.folderIdCounter++;
-    const folder: StoredFolder = {
-      id,
-      name,
-      path: path.join(folderPath, name),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-      parentId: null // You might want to implement proper parent-child relationships
-    };
+    try {
+      const id = this.folderIdCounter++;
+      const fullPath = path.join(folderPath, name).replace(/\\/g, '/');
+      
+      const folder: StoredFolder = {
+        id,
+        name,
+        path: fullPath,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        parentId: null
+      };
 
-    this.folders.set(id, folder);
-    return folder;
+      this.folders.set(id, folder);
+      return folder;
+    } catch (error) {
+      console.error('Error creating team folder:', error);
+      throw new Error('Failed to create folder');
+    }
   }
 
   async shareTeamFile(fileId: number, userIds: string[]): Promise<void> {
@@ -865,10 +894,24 @@ export class MemStorage implements IStorage {
   }
 
   async getTeamActivity(): Promise<ActivityLog[]> {
-    // Get all activity logs and sort by timestamp descending
-    return Array.from(this.activityLogs.values())
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 50); // Limit to last 50 activities
+    try {
+      // Get all activity logs and sort by timestamp descending
+      const logs = Array.from(this.activityLogs.values())
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .slice(0, 50); // Limit to last 50 activities
+
+      // Enrich logs with user information
+      return await Promise.all(logs.map(async log => {
+        const user = await this.getUser(parseInt(log.userId));
+        return {
+          ...log,
+          username: user?.username || 'Unknown User'
+        };
+      }));
+    } catch (error) {
+      console.error('Error getting team activity:', error);
+      return [];
+    }
   }
 }
 
