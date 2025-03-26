@@ -1,5 +1,7 @@
 # SecureShare - Secure File Sharing Platform
 
+Implemented by: sunnykumar37
+
 SecureShare is a modern, secure file sharing platform built with TypeScript, React, and Express. It provides a robust solution for secure file storage, sharing, and team collaboration with advanced security features.
 
 ## Features
@@ -152,24 +154,4 @@ SecureShare/
 - `GET /api/team/activity` - Get team activity
 
 ### Admin
-- `GET /api/admin/users` - Get all users
-- `GET /api/admin/activity-logs` - Get all activity logs
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- [React](https://reactjs.org/)
-- [Express](https://expressjs.com/)
-- [Tailwind CSS](https://tailwindcss.com/)
-- [Shadcn UI](https://ui.shadcn.com/) 
+- `GET /api/admin/users`
