@@ -10,6 +10,7 @@ interface User {
   mfaEnabled?: boolean;
   mfaSecret?: string | null;
   lastLogin?: Date | null;
+  securityQuestion?: string;
 }
 
 interface MfaResponse {
@@ -18,15 +19,26 @@ interface MfaResponse {
   username: string;
 }
 
+interface SecurityQuestionResponse {
+  success: boolean;
+  token?: string;
+  question?: string;
+  message?: string;
+}
+
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (username: string, password: string, remember?: boolean) => Promise<MfaResponse | any>;
-  register: (username: string, email: string, password: string) => Promise<void>;
+  register: (username: string, email: string, password: string, securityQuestion: string, securityAnswer: string) => Promise<void>;
   logout: () => void;
   isAuthenticated: boolean;
   token: string | null;
   updateAuthState: (token: string | null) => Promise<boolean>;
+  forgotPassword: (username: string, email: string) => Promise<void>;
+  verifySecurityAnswer: (username: string, answer: string) => Promise<SecurityQuestionResponse>;
+  resetPassword: (token: string, newPassword: string) => Promise<void>;
+  getSecurityQuestion: (username: string) => Promise<string>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -101,13 +113,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const register = async (username: string, email: string, password: string) => {
+  const register = async (username: string, email: string, password: string, securityQuestion: string, securityAnswer: string) => {
     try {
       const response = await apiRequest("POST", "/api/auth/register", {
         username,
         email,
         password,
-        role: "user"
+        role: "user",
+        securityQuestion,
+        securityAnswer
       });
 
       const data = await response.json();
@@ -126,28 +140,100 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const forgotPassword = async (username: string, email: string) => {
+    try {
+      const response = await apiRequest("POST", "/api/auth/forgot-password", {
+        username,
+        email
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to process forgot password request");
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const verifySecurityAnswer = async (username: string, answer: string): Promise<SecurityQuestionResponse> => {
+    try {
+      const response = await apiRequest("POST", "/api/auth/verify-security-answer", {
+        username,
+        answer
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to verify security answer");
+      }
+
+      const data = await response.json();
+      return {
+        success: data.success,
+        token: data.token,
+        message: data.message
+      };
+    } catch (error) {
+      console.error("Security answer verification error:", error);
+      throw error;
+    }
+  };
+
+  const resetPassword = async (token: string, newPassword: string) => {
+    try {
+      const response = await apiRequest("POST", "/api/auth/reset-password", {
+        token,
+        newPassword
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to reset password");
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
   const logout = () => {
     localStorage.removeItem("token");
     setUser(null);
     navigate("/login");
   };
 
-  return (
-    <AuthContext.Provider
-      value={{
-        user,
-        loading,
-        login,
-        register,
-        logout,
-        isAuthenticated: !!user,
-        token: localStorage.getItem("token"),
-        updateAuthState
-      }}
-    >
-      {children}
-    </AuthContext.Provider>
-  );
+  const getSecurityQuestion = async (username: string): Promise<string> => {
+    try {
+      const response = await apiRequest("POST", "/api/auth/get-security-question", {
+        username
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || "Failed to fetch security question");
+      }
+
+      const data = await response.json();
+      return data.securityQuestion;
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  const value = {
+    user,
+    loading,
+    login,
+    register,
+    logout,
+    isAuthenticated: !!user,
+    token: localStorage.getItem("token"),
+    updateAuthState,
+    forgotPassword,
+    verifySecurityAnswer,
+    resetPassword,
+    getSecurityQuestion,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {

@@ -20,6 +20,7 @@ import {
 import crypto from "crypto";
 import { encryptionService } from "./encryption";
 import { eq, and, desc } from "drizzle-orm";
+import * as bcrypt from "bcrypt";
 
 interface CreateFileParams {
   name: string;
@@ -46,6 +47,10 @@ export interface User {
   mfaSecret?: string;
   createdAt: Date;
   updatedAt: Date;
+  securityQuestion?: string;
+  securityAnswer?: string;
+  passwordResetToken?: string;
+  passwordResetExpires?: Date;
 }
 
 export interface TeamMember {
@@ -168,6 +173,13 @@ export interface IStorage {
   }): Promise<ActivityLog>;
 
   getTeamActivity(): Promise<ActivityLog[]>;
+
+  // Password reset methods
+  updateUserSecurityQuestion(userId: number, question: string, answer: string): Promise<boolean>;
+  generatePasswordResetToken(userId: number): Promise<string>;
+  verifyPasswordResetToken(token: string): Promise<number | null>;
+  updateUserPassword(userId: number, newPassword: string): Promise<boolean>;
+  verifySecurityAnswer(userId: number, answer: string): Promise<boolean>;
 }
 
 export class MemStorage implements IStorage {
@@ -227,16 +239,31 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.userIdCounter++;
+
+    // Hash the password
+    const hashedPassword = await bcrypt.hash(insertUser.password, 10);
+
+    // Hash the security answer if provided
+    let hashedSecurityAnswer = undefined;
+    if (insertUser.securityAnswer) {
+      hashedSecurityAnswer = await bcrypt.hash(insertUser.securityAnswer, 10);
+    }
+
     const user: User = { 
-      ...insertUser, 
+      ...insertUser,
       id,
+      password: hashedPassword,  // Store the hashed password
+      securityAnswer: hashedSecurityAnswer,  // Store the hashed security answer
       role: insertUser.role || "user",
       mfaEnabled: insertUser.mfaEnabled || false,
       mfaSecret: insertUser.mfaSecret || null,
       lastLogin: insertUser.lastLogin || null,
       failedLoginAttempts: insertUser.failedLoginAttempts || 0,
-      lockoutUntil: insertUser.lockoutUntil || null
+      lockoutUntil: insertUser.lockoutUntil || null,
+      createdAt: new Date(),
+      updatedAt: new Date()
     };
+    
     this.users.set(id, user);
     return user;
   }
@@ -992,6 +1019,78 @@ export class MemStorage implements IStorage {
     };
     this.activityLogs.set(id, log);
     return log;
+  }
+
+  async updateUserSecurityQuestion(userId: number, question: string, answer: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user) return false;
+
+    const hashedAnswer = await bcrypt.hash(answer, 10);
+    user.securityQuestion = question;
+    user.securityAnswer = hashedAnswer;
+    this.users.set(userId, user);
+    return true;
+  }
+
+  async generatePasswordResetToken(userId: number): Promise<string> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Generate a random token
+    const token = crypto.randomBytes(32).toString('hex');
+    
+    // Set token expiration to 1 hour from now
+    const expires = new Date();
+    expires.setHours(expires.getHours() + 1);
+
+    // Update user with reset token and expiration
+    user.passwordResetToken = token;
+    user.passwordResetExpires = expires;
+    this.users.set(user.id, user);
+
+    return token;
+  }
+
+  async verifyPasswordResetToken(token: string): Promise<number | null> {
+    const user = Array.from(this.users.values()).find(
+      u => u.passwordResetToken === token && u.passwordResetExpires && u.passwordResetExpires > new Date()
+    );
+
+    if (!user) {
+      return null;
+    }
+
+    return user.id;
+  }
+
+  async updateUserPassword(userId: number, newPassword: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user) {
+      return false;
+    }
+
+    // Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    
+    // Update user password and clear reset token
+    user.password = hashedPassword;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+    
+    this.users.set(user.id, user);
+    return true;
+  }
+
+  async verifySecurityAnswer(userId: number, answer: string): Promise<boolean> {
+    const user = await this.getUser(userId);
+    if (!user || !user.securityAnswer) {
+      return false;
+    }
+
+    // Compare the provided answer with the stored hashed answer
+    return await bcrypt.compare(answer, user.securityAnswer);
   }
 }
 

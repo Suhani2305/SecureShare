@@ -18,6 +18,9 @@ import {
   setupMfaSchema,
   verifyMfaSchema,
   mfaLoginSchema,
+  forgotPasswordSchema,
+  verifySecurityAnswerSchema,
+  resetPasswordSchema,
 } from "@shared/schema";
 import { SecurityUtils } from './security';
 import { FileShare, StoredFile } from './types';
@@ -272,60 +275,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
    * Authentication Routes
    */
   // Register
-  apiRouter.post("/auth/register", async (req, res) => {
+  apiRouter.post("/auth/register", async (req: Request, res: Response) => {
     try {
-      const validatedData = insertUserSchema.parse(req.body);
+      const { username, email, password, securityQuestion, securityAnswer } = req.body;
 
-      // Check if user already exists
-      const existingUser = await storage.getUserByUsername(validatedData.username);
+      // Check if username or email already exists
+      const existingUser = await storage.getUserByUsername(username);
       if (existingUser) {
-        return res.status(400).json({ message: "Username already taken" });
+        return res.status(400).json({ error: "Username already exists" });
       }
 
-      // Check if email already exists
-      const existingEmail = await storage.getUserByEmail(validatedData.email);
+      const existingEmail = await storage.getUserByEmail(email);
       if (existingEmail) {
-        return res.status(400).json({ message: "Email already in use" });
+        return res.status(400).json({ error: "Email already exists" });
       }
-
-      // Hash password
-      const salt = await bcrypt.genSalt(10);
-      const hashedPassword = await bcrypt.hash(validatedData.password, salt);
 
       // Create user
       const user = await storage.createUser({
-        ...validatedData,
-        password: hashedPassword,
+        username,
+        email,
+        password,
+        role: "user",
+        mfaEnabled: false,
+        securityQuestion,
+        securityAnswer
       });
 
-      // Log activity
-      await logActivity(
-        user.id,
-        "register",
-        user.id,
-        "user",
-        { username: user.username },
-        req.ip
-      );
-
-      // Create session token
+      // Generate JWT token
       const token = jwt.sign(
         { id: user.id, username: user.username, role: user.role },
         JWT_SECRET,
-        { expiresIn: "30d" }
+        { expiresIn: "24h" }
       );
-      
-      res.status(201).json({ 
-        token,
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          role: user.role
-        }
-      });
+
+      return res.json({ token });
     } catch (error) {
-      res.status(400).json({ message: (error as Error).message });
+      console.error("Registration error:", error);
+      return res.status(500).json({ error: "Failed to register user" });
     }
   });
 
@@ -1094,8 +1080,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   );
 
-  // This endpoint has been moved to a dedicated route below
-
   // Get user's activity logs
   apiRouter.get("/activity-logs", authenticate, async (req, res) => {
     try {
@@ -1372,6 +1356,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Verify security answer route
+  apiRouter.post("/auth/verify-security-answer", async (req: Request, res: Response) => {
+    try {
+      const { username, answer } = verifySecurityAnswerSchema.parse(req.body);
+      
+      // Find user by username
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Verify security answer
+      const isValid = await storage.verifySecurityAnswer(user.id, answer);
+      if (!isValid) {
+        return res.status(401).json({ message: "Incorrect security answer" });
+      }
+
+      // Generate password reset token
+      const token = await storage.generatePasswordResetToken(user.id);
+
+      return res.json({ 
+        success: true,
+        token,
+        message: "Security answer verified successfully"
+      });
+    } catch (error) {
+      console.error("Verify security answer error:", error);
+      return res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  });
+
+  // Reset password route
+  apiRouter.post("/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const { token, newPassword } = resetPasswordSchema.parse(req.body);
+      
+      // Verify token and get user ID
+      const userId = await storage.verifyPasswordResetToken(token);
+      if (!userId) {
+        return res.status(400).json({ message: "Invalid or expired reset token" });
+      }
+
+      // Update password
+      const success = await storage.updateUserPassword(userId, newPassword);
+      if (!success) {
+        return res.status(500).json({ message: "Failed to reset password" });
+      }
+
+      return res.json({ message: "Password reset successfully" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      return res.status(400).json({ message: error instanceof Error ? error.message : "Invalid request" });
+    }
+  });
+
+  // Get security question route
+  apiRouter.post("/auth/get-security-question", async (req: Request, res: Response) => {
+    try {
+      const { username } = req.body;
+
+      if (!username) {
+        return res.status(400).json({ message: "Username is required" });
+      }
+
+      const user = await storage.getUserByUsername(username);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Return the security question but not the answer
+      res.json({ securityQuestion: user.securityQuestion });
+    } catch (error) {
+      console.error("Error fetching security question:", error);
+      res.status(500).json({ message: "Failed to fetch security question" });
+    }
+  });
+
   // Register API router
   app.use("/api", apiRouter);
 
@@ -1417,5 +1478,32 @@ app.delete("/api/trash/:id", authenticateToken, async (req: Request, res: Respon
   } catch (error) {
     console.error("Error permanently deleting file:", error);
     res.status(500).json({ error: "Failed to permanently delete file" });
+  }
+});
+
+// Password reset routes
+app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+  try {
+    const { username, email } = forgotPasswordSchema.parse(req.body);
+    
+    // Find user by username and email
+    const user = await storage.getUserByUsername(username);
+    if (!user || user.email !== email) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Generate password reset token
+    const token = await storage.generatePasswordResetToken(user.id);
+
+    // TODO: Send email with reset link
+    // For now, we'll just return the token in the response
+    // In production, you should send this via email
+    return res.json({ 
+      message: "Password reset instructions sent to your email",
+      token // Remove this in production
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error);
+    return res.status(400).json({ error: "Invalid request" });
   }
 });

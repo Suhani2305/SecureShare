@@ -15,12 +15,16 @@ import ActivityLogs from "@/pages/admin/activity-logs";
 import { AuthProvider, RequireAuth, RequireAdmin } from "@/utils/auth";
 import TeamFiles from "@/pages/team-files";
 import TrashFiles from "@/pages/trash";
+import ForgotPassword from "@/pages/forgot-password";
+import ResetPassword from "@/pages/reset-password";
 
 function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
       <Route path="/register" component={Register} />
+      <Route path="/forgot-password" component={ForgotPassword} />
+      <Route path="/reset-password" component={ResetPassword} />
       <Route path="/mfa-verification" component={MfaVerification} />
       <Route path="/">
         <RequireAuth>

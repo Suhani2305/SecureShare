@@ -9,18 +9,29 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 const formSchema = z.object({
   username: z.string().min(3, "Username must be at least 3 characters"),
   email: z.string().email("Please enter a valid email"),
   password: z.string().min(6, "Password must be at least 6 characters"),
   confirmPassword: z.string(),
+  securityQuestion: z.string().min(1, "Please select a security question"),
+  securityAnswer: z.string().min(1, "Please provide an answer to the security question"),
 }).refine((data) => data.password === data.confirmPassword, {
   message: "Passwords do not match",
   path: ["confirmPassword"],
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+const securityQuestions = [
+  "What was your first pet's name?",
+  "What is your mother's maiden name?",
+  "What city were you born in?",
+  "What is your favorite book?",
+  "What was your childhood nickname?"
+];
 
 export default function Register() {
   const [, navigate] = useLocation();
@@ -35,6 +46,8 @@ export default function Register() {
       email: "",
       password: "",
       confirmPassword: "",
+      securityQuestion: "",
+      securityAnswer: "",
     },
   });
   
@@ -43,7 +56,7 @@ export default function Register() {
     setIsLoading(true);
     
     try {
-      await register(data.username, data.email, data.password);
+      await register(data.username, data.email, data.password, data.securityQuestion, data.securityAnswer);
       navigate("/login");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Registration failed. Please try again.");
@@ -124,6 +137,45 @@ export default function Register() {
                     <FormLabel>Confirm Password</FormLabel>
                     <FormControl>
                       <Input type="password" placeholder="Confirm your password" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="securityQuestion"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Security Question</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a security question" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {securityQuestions.map((question) => (
+                          <SelectItem key={question} value={question}>
+                            {question}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="securityAnswer"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Security Answer</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Enter your answer" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
