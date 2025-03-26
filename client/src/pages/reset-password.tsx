@@ -1,60 +1,69 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useAuth } from "@/utils/auth";
 import { Shield, AlertCircle } from "lucide-react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Link } from "wouter"; // Added import
 
 const formSchema = z.object({
-  username: z.string().min(3, "Username must be at least 3 characters"),
   password: z.string().min(6, "Password must be at least 6 characters"),
+  confirmPassword: z.string(),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords do not match",
+  path: ["confirmPassword"],
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-export default function Login() {
+export default function ResetPassword() {
   const [, navigate] = useLocation();
-  const { login } = useAuth();
+  const { resetPassword } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [token, setToken] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tokenParam = params.get("token");
+    if (!tokenParam) {
+      navigate("/forgot-password");
+    } else {
+      setToken(tokenParam);
+    }
+  }, [navigate]);
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      username: "",
       password: "",
+      confirmPassword: "",
     },
   });
 
   const onSubmit = async (data: FormValues) => {
+    if (!token) return;
+    
     setError(null);
     setIsLoading(true);
-
+    
     try {
-      const result = await login(data.username, data.password);
-
-      // Check if MFA is required
-      if (result && result.requireMfa) {
-        // Redirect to MFA verification page with necessary data
-        navigate(`/mfa-verification?userId=${result.userId}&username=${result.username}`);
-      } else {
-        // Normal login - redirect to dashboard
-        navigate("/");
-      }
+      await resetPassword(token, data.password);
+      navigate("/login");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed. Please check your credentials.");
+      setError(err instanceof Error ? err.message : "Failed to reset password. Please try again.");
     } finally {
       setIsLoading(false);
     }
   };
+
+  if (!token) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-gray-100 flex items-center justify-center p-4">
@@ -63,9 +72,9 @@ export default function Login() {
           <div className="flex items-center justify-center mb-2">
             <Shield className="h-10 w-10 text-primary" />
           </div>
-          <CardTitle className="text-2xl font-bold text-center">Login to SecureFiles</CardTitle>
+          <CardTitle className="text-2xl font-bold text-center">Reset Password</CardTitle>
           <p className="text-sm text-gray-500 text-center">
-            Enter your credentials to access your secure files
+            Enter your new password
           </p>
         </CardHeader>
         <CardContent>
@@ -75,77 +84,59 @@ export default function Login() {
               <span>{error}</span>
             </div>
           )}
-
+          
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="username"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Username</FormLabel>
-                    <FormControl>
-                      <Input placeholder="Enter your username" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               <FormField
                 control={form.control}
                 name="password"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Password</FormLabel>
+                    <FormLabel>New Password</FormLabel>
                     <FormControl>
-                      <Input type="password" placeholder="Enter your password" {...field} />
+                      <Input type="password" placeholder="Enter new password" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
+              
               <FormField
                 control={form.control}
-                name="remember"
+                name="confirmPassword"
                 render={({ field }) => (
-                  <div className="flex items-center space-x-2 mb-4">
-                    <Checkbox id="remember" {...field} />
-                    <label htmlFor="remember" className="text-sm text-gray-600">
-                      Remember me
-                    </label>
-                  </div>
+                  <FormItem>
+                    <FormLabel>Confirm New Password</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="Confirm new password" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
               />
-
-              <Button type="submit" className="w-full mb-2" disabled={isLoading}>
-                {isLoading ? "Logging in..." : "Login"}
+              
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Resetting..." : "Reset Password"}
               </Button>
-
-              <div className="text-center">
-                <Link to="/forgot-password" className="text-sm text-primary hover:underline">
-                  Forgot password?
-                </Link>
-              </div>
             </form>
           </Form>
         </CardContent>
         <CardFooter className="flex justify-center">
           <p className="text-sm text-gray-500">
-            Don't have an account?{" "}
+            Remember your password?{" "}
             <a 
-              href="/register"
+              href="/login"
               className="text-primary hover:underline"
               onClick={(e) => {
                 e.preventDefault();
-                navigate("/register");
+                navigate("/login");
               }}
             >
-              Register
+              Login
             </a>
           </p>
         </CardFooter>
       </Card>
     </div>
   );
-}
+} 

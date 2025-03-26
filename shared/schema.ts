@@ -14,6 +14,10 @@ export const users = pgTable("users", {
   lastLogin: timestamp("last_login"),
   failedLoginAttempts: integer("failed_login_attempts").notNull().default(0),
   lockoutUntil: timestamp("lockout_until"),
+  securityQuestion: text("security_question"),
+  securityAnswer: text("security_answer"),
+  passwordResetToken: text("password_reset_token"),
+  passwordResetExpires: timestamp("password_reset_expires"),
 });
 
 // Folder model
@@ -109,6 +113,22 @@ export const mfaLoginSchema = z.object({
   token: z.string().min(6).max(6),
 });
 
+// Password reset schemas
+export const forgotPasswordSchema = z.object({
+  username: z.string().min(3),
+  email: z.string().email(),
+});
+
+export const verifySecurityAnswerSchema = z.object({
+  username: z.string().min(3),
+  answer: z.string().min(1),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(1),
+  newPassword: z.string().min(6),
+});
+
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type InsertFile = z.infer<typeof insertFileSchema>;
@@ -120,6 +140,9 @@ export type LoginInput = z.infer<typeof loginSchema>;
 export type SetupMfaInput = z.infer<typeof setupMfaSchema>;
 export type VerifyMfaInput = z.infer<typeof verifyMfaSchema>;
 export type MfaLoginInput = z.infer<typeof mfaLoginSchema>;
+export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
+export type VerifySecurityAnswerInput = z.infer<typeof verifySecurityAnswerSchema>;
+export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 
 export type User = typeof users.$inferSelect;
 export type File = typeof files.$inferSelect;
