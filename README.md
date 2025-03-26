@@ -54,7 +54,7 @@ SecureShare is a modern, secure file sharing platform built with TypeScript, Rea
 - CSRF protection
 
 ## Project Screenshot
-![App Screenshot]( Screenshot 2025-03-26 141514.png)
+![App Screenshot]( "Screenshot 2025-03-26 141514.png")
 
 
 ## Tech Stack
