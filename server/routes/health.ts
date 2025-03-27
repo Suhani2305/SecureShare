@@ -1,5 +1,5 @@
 import express from 'express';
-import { db } from '../db';
+import { storage } from '../storage';
 
 const router = express.Router();
 
@@ -16,7 +16,7 @@ router.get('/', (req, res) => {
 router.get('/db', async (req, res) => {
   try {
     // Try to query the database
-    await db.execute(sql`SELECT 1`);
+    await storage.getFiles();
     res.status(200).json({ 
       status: 'ok',
       database: 'connected'
