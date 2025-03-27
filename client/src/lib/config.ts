@@ -1,4 +1,7 @@
-export const API_BASE_URL = "http://localhost:3000";
+// Use Render URL in production, localhost in development
+export const API_BASE_URL = process.env.NODE_ENV === 'production' 
+  ? 'https://secureshare-hy52.onrender.com' // Render deployment URL
+  : "http://localhost:3000";
 
 export const API_ENDPOINTS = {
   FILES: "/api/files",
