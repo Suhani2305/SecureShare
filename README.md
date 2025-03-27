@@ -13,6 +13,10 @@ SecureShare is a modern, secure file sharing platform built with TypeScript, Rea
 - Account lockout protection
 - Session management
 - Role-based access control (Admin/User)
+- Forgot password functionality with email verification
+- Password reset using security questions
+- Email-based password recovery
+- Security question management during registration
 
 ### 2. File Management
 - Secure file upload and storage

@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String            @id @default(uuid())
+  email           String            @unique
+  password        String
+  role            String            @default("user")
+  isActive        Boolean           @default(true)
+  loginAttempts   Int               @default(0)
+  lastLogin       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  files           File[]
+  teams           TeamMember[]
+  securityQuestions SecurityQuestion[]
+  activityLogs    ActivityLog[]
+  sharedFiles     Share[]
+}
+
+model File {
+  id          String    @id @default(uuid())
+  name        String
+  path        String
+  size        Int
+  type        String
+  isEncrypted Boolean   @default(true)
+  isDeleted   Boolean   @default(false)
+  ownerId     String
+  owner       User      @relation(fields: [ownerId], references: [id])
+  sharedWith  Share[]
+  teamId      String?
+  team        Team?     @relation(fields: [teamId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  activityLogs ActivityLog[]
+}
+
+model Team {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  members     TeamMember[]
+  files       File[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  activityLogs ActivityLog[]
+}
+
+model TeamMember {
+  id        String    @id @default(uuid())
+  userId    String
+  teamId    String
+  role      String    @default("member") // member, admin
+  user      User      @relation(fields: [userId], references: [id])
+  team      Team      @relation(fields: [teamId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Share {
+  id        String    @id @default(uuid())
+  fileId    String
+  userId    String
+  file      File      @relation(fields: [fileId], references: [id])
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model SecurityQuestion {
+  id        String    @id @default(uuid())
+  userId    String
+  question  String
+  answer    String
+  user      User      @relation(fields: [userId], references: [id])
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model ActivityLog {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id])
+  fileId    String?
+  file      File?     @relation(fields: [fileId], references: [id])
+  teamId    String?
+  team      Team?     @relation(fields: [teamId], references: [id])
+  action    String    // login, upload, share, delete, etc.
+  details   String?
+  createdAt DateTime  @default(now())
+} 
