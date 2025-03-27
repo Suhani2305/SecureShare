@@ -1,7 +1,17 @@
-// Use Render URL in production, localhost in development
-export const API_BASE_URL = process.env.NODE_ENV === 'production' 
-  ? 'https://secureshare-hy52.onrender.com' // Render deployment URL
-  : "http://localhost:3000";
+// Dynamically determine the API URL based on environment
+const getApiUrl = () => {
+  if (typeof window === 'undefined') return 'http://localhost:3000';
+  
+  // Check if we're in development
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+    return 'http://localhost:3000';
+  }
+  
+  // In production, use the current domain
+  return `${window.location.protocol}//${window.location.host}`;
+};
+
+export const API_BASE_URL = getApiUrl();
 
 export const API_ENDPOINTS = {
   FILES: "/api/files",
