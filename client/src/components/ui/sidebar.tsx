@@ -50,7 +50,12 @@ const routes = [
   },
 ];
 
-export function Sidebar() {
+interface SidebarProps {
+  showMobile: boolean;
+  onCloseMobile: () => void;
+}
+
+export function Sidebar({ showMobile, onCloseMobile }: SidebarProps) {
   const { logout } = useAuth();
   const location = useLocation();
   

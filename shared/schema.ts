@@ -46,6 +46,8 @@ export const files = pgTable("files", {
   encryptionSalt: text("encryption_salt"),
   encryptedKey: text("encrypted_key"),
   ownerId: integer("owner_id").notNull(),
+  isPasswordProtected: boolean("is_password_protected").notNull().default(false),
+  passwordHash: text("password_hash"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   deletedAt: timestamp("deleted_at"),

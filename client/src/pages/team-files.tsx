@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/ui/sidebar";
 import { Header } from "@/components/ui/header";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
@@ -29,6 +29,7 @@ import {
 import { TeamMembersList } from "@/components/team/team-members-list";
 import { ActivityFeed } from "@/components/team/activity-feed";
 import { ShareModal } from "@/components/modals/share-modal";
+import { type UseQueryOptions } from "@tanstack/react-query";
 
 interface SharedFile {
   id: number;
@@ -48,6 +49,17 @@ interface SharedFile {
   };
 }
 
+interface SidebarProps {
+  showMobile: boolean;
+  onCloseMobile: () => void;
+}
+
+interface ShareModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  file: SharedFile;
+}
+
 export default function TeamFiles() {
   const { toast } = useToast();
   const [searchQuery, setSearchQuery] = useState("");
@@ -56,7 +68,7 @@ export default function TeamFiles() {
   const [selectedFile, setSelectedFile] = useState<SharedFile | null>(null);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
-  const { data: files, isLoading, error } = useQuery({
+  const queryOptions: UseQueryOptions<SharedFile[]> = {
     queryKey: ["team-files"],
     queryFn: async () => {
       const response = await apiRequest("GET", API_ENDPOINTS.TEAM_FILES);
@@ -64,17 +76,13 @@ export default function TeamFiles() {
         const error = await response.json();
         throw new Error(error.message || "Failed to fetch team files");
       }
-      return response.json();
+      const data = await response.json();
+      return data.files;
     },
-    onError: (error) => {
-      console.error("Error fetching team files:", error);
-      toast({
-        title: "Error",
-        description: "Failed to load team files. Please try again.",
-        variant: "destructive",
-      });
-    }
-  });
+    retry: 1
+  };
+
+  const { data: files, isLoading, error } = useQuery<SharedFile[]>(queryOptions);
 
   const handleMenuClick = () => {
     setShowMobileSidebar(!showMobileSidebar);
@@ -85,7 +93,48 @@ export default function TeamFiles() {
     setIsShareModalOpen(true);
   };
 
-  const sortedFiles = files?.sort((a, b) => {
+  const handleDownload = async (file: SharedFile) => {
+    try {
+      // First try to download without password
+      let response = await apiRequest("GET", `/api/files/${file.id}/download`);
+      
+      if (response.status === 401) {
+        // If unauthorized, check if password is required
+        const errorData = await response.json();
+        if (errorData.requiresPassword) {
+          const password = prompt("This file is password protected. Please enter the password:");
+          if (!password) return;
+          
+          // Retry with password
+          response = await apiRequest("GET", `/api/files/${file.id}/download?password=${encodeURIComponent(password)}`);
+          if (!response.ok) {
+            throw new Error(errorData.message || "Download failed");
+          }
+        }
+      } else if (!response.ok) {
+        throw new Error("Download failed");
+      }
+      
+      // If we get here, the response is OK and we can download the file
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = file.originalName;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to download file",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const sortedFiles = files?.sort((a: SharedFile, b: SharedFile) => {
     switch (sortBy) {
       case "name":
         return a.originalName.localeCompare(b.originalName);
@@ -97,9 +146,19 @@ export default function TeamFiles() {
     }
   });
 
-  const filteredFiles = sortedFiles?.filter(file => 
+  const filteredFiles = sortedFiles?.filter((file: SharedFile) => 
     file.originalName.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  useEffect(() => {
+    if (error) {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to load team files. Please try again.",
+        variant: "destructive",
+      });
+    }
+  }, [error, toast]);
 
   return (
     <div className="flex h-screen bg-gray-100">
@@ -165,6 +224,7 @@ export default function TeamFiles() {
                         files={filteredFiles}
                         showShareActions
                         onShare={handleShare}
+                        onDownload={handleDownload}
                       />
                     )}
                   </CardContent>

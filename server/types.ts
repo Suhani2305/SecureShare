@@ -1,3 +1,25 @@
+export interface File {
+  id: number;
+  name: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  path: string;
+  folderId?: number;
+  encrypted: boolean;
+  encryptionIV?: string;
+  encryptionTag?: string;
+  encryptionSalt?: string;
+  encryptedKey?: string;
+  ownerId: number;
+  isPasswordProtected: boolean;
+  passwordHash?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date;
+  isDeleted?: boolean;
+}
+
 export interface StoredFile {
   id: number;
   name: string;
@@ -12,6 +34,8 @@ export interface StoredFile {
   encryptionSalt?: string;
   encryptedKey?: string;
   ownerId: number;
+  isPasswordProtected: boolean;
+  passwordHash?: string;
   createdAt: Date;
   updatedAt: Date;
   deletedAt?: Date;

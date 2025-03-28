@@ -328,9 +328,27 @@ export default function MyFiles() {
   
   const handleDownload = async (file: FileItem) => {
     try {
-      const response = await apiRequest("GET", `/api/files/${file.id}/download`);
-      if (!response.ok) throw new Error('Download failed');
+      // First try to download without password
+      let response = await apiRequest("GET", `/api/files/${file.id}/download`);
       
+      if (response.status === 401) {
+        // If unauthorized, check if password is required
+        const errorData = await response.json();
+        if (errorData.requiresPassword) {
+          const password = prompt("This file is password protected. Please enter the password:");
+          if (!password) return;
+          
+          // Retry with password
+          response = await apiRequest("GET", `/api/files/${file.id}/download?password=${encodeURIComponent(password)}`);
+          if (!response.ok) {
+            throw new Error(errorData.message || "Download failed");
+          }
+        }
+      } else if (!response.ok) {
+        throw new Error("Download failed");
+      }
+      
+      // If we get here, the response is OK and we can download the file
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -343,7 +361,7 @@ export default function MyFiles() {
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to download file",
+        description: error instanceof Error ? error.message : "Failed to download file",
         variant: "destructive",
       });
     }

@@ -30,9 +30,14 @@ export async function apiRequest(
       method,
       headers,
       body: data ? JSON.stringify(data) : undefined,
-      credentials: "same-origin",
-      mode: "same-origin"
+      credentials: "include",
+      mode: "cors"
     });
+
+    if (res.status === 401) {
+      const error = await res.json();
+      throw new Error(error.message || "Authentication failed");
+    }
 
     await throwIfResNotOk(res);
     return res;
@@ -50,17 +55,23 @@ export const getQueryFn: <T>(options: {
   async ({ queryKey }) => {
     const token = localStorage.getItem("token");
     const headers: Record<string, string> = {
+      "Content-Type": "application/json",
       ...(token ? { "Authorization": `Bearer ${token}` } : {})
     };
 
     const res = await fetch(`${API_BASE_URL}${queryKey[0]}`, {
       headers,
-      credentials: "same-origin",
-      mode: "same-origin"
+      credentials: "include",
+      mode: "cors"
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
       return null;
+    }
+
+    if (res.status === 401) {
+      const error = await res.json();
+      throw new Error(error.message || "Authentication failed");
     }
 
     await throwIfResNotOk(res);

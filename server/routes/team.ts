@@ -90,9 +90,36 @@ router.delete("/members/:id", authenticateJwt, async (req: Request, res: Respons
 // Get team files
 router.get("/files", authenticateJwt, async (req: Request, res: Response) => {
   try {
+    const userId = req.user!.id;
     const currentPath = req.query.path as string || "/";
+    
+    // Get team member to check access
+    const teamMember = await storage.getTeamMember(userId);
+    if (!teamMember) {
+      return res.status(403).json({ message: "You are not a team member" });
+    }
+
+    // Get team files
     const files = await storage.getTeamFiles(currentPath);
-    return res.status(200).json({ files });
+    if (!files) {
+      return res.status(200).json({ files: [] });
+    }
+
+    // Get user details for each file owner
+    const filesWithOwners = await Promise.all(
+      files.map(async (file) => {
+        const owner = await storage.getUser(file.ownerId);
+        return {
+          ...file,
+          owner: {
+            id: owner?.id || 0,
+            username: owner?.username || "Unknown"
+          }
+        };
+      })
+    );
+
+    return res.status(200).json({ files: filesWithOwners });
   } catch (error) {
     console.error("Error getting team files:", error);
     return res.status(500).json({ message: "Failed to get team files" });

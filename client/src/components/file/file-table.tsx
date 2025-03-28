@@ -23,35 +23,32 @@ import {
 import { ShareModal } from "@/components/modals/share-modal";
 import { DeleteModal } from "@/components/modals/delete-modal";
 
-interface FileTableProps {
-  files: Array<{
-    id: string;
-    name: string;
-    size: number;
-    type: string;
-    createdAt: string;
-    updatedAt: string;
-    originalName: string;
-    mimeType: string;
-    encrypted: boolean;
-  }>;
-  onDownload?: (fileId: string) => void;
-  onDelete?: (fileId: string) => void;
-  onRestore?: (fileId: string) => void;
-  showActions?: boolean;
-  showShareActions?: boolean;
-  isTrash?: boolean;
+interface SharedFile {
+  id: number;
+  name: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  encrypted: boolean;
+  createdAt: string;
+  updatedAt: string;
+  shareId: number;
+  accessLevel: string;
+  sharedBy: number;
+  owner: {
+    id: number;
+    username: string;
+  };
 }
 
-export function FileTable({
-  files,
-  onDownload,
-  onDelete,
-  onRestore,
-  showActions = true,
-  showShareActions = true,
-  isTrash = false,
-}: FileTableProps) {
+interface FileTableProps {
+  files: SharedFile[];
+  showShareActions?: boolean;
+  onShare?: (file: SharedFile) => void;
+  onDownload?: (file: SharedFile) => void;
+}
+
+export function FileTable({ files, showShareActions = false, onShare, onDownload }: FileTableProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [shareModalOpen, setShareModalOpen] = useState(false);
@@ -70,8 +67,23 @@ export function FileTable({
 
   const handleDownload = async (file: any) => {
     try {
-      const response = await apiRequest("GET", `/api/files/${file.id}/download`);
-      if (!response.ok) throw new Error('Download failed');
+      // First try to download without password
+      let response = await apiRequest("GET", `/api/files/${file.id}/download`);
+      
+      // If password is required
+      if (response.status === 401 && (await response.json()).requiresPassword) {
+        const password = prompt("This file is password protected. Please enter the password:");
+        if (!password) return;
+        
+        // Retry with password
+        response = await apiRequest("GET", `/api/files/${file.id}/download?password=${encodeURIComponent(password)}`);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.message || "Download failed");
+        }
+      } else if (!response.ok) {
+        throw new Error("Download failed");
+      }
       
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -85,7 +97,7 @@ export function FileTable({
     } catch (error) {
       toast({
         title: "Error",
-        description: "Failed to download file",
+        description: "Failed to download file: " + (error instanceof Error ? error.message : "Unknown error"),
         variant: "destructive",
       });
     }
@@ -131,53 +143,39 @@ export function FileTable({
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
+            <TableHead>Owner</TableHead>
             <TableHead>Size</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Modified</TableHead>
-            {showActions && <TableHead>Actions</TableHead>}
+            <TableHead>Last Modified</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {files.map((file) => (
             <TableRow key={file.id}>
-              <TableCell className="flex items-center gap-2">
-                <FileIcon type={file.type} />
-                {file.name}
-              </TableCell>
+              <TableCell>{file.originalName}</TableCell>
+              <TableCell>{file.owner.username}</TableCell>
               <TableCell>{formatBytes(file.size)}</TableCell>
-              <TableCell>{file.type}</TableCell>
-              <TableCell>{formatDate(new Date(file.updatedAt))}</TableCell>
-              {showActions && (
-                <TableCell className="flex gap-2">
-                  {!isTrash && onDownload && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDownload(file.id)}
-                    >
-                      <Download className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {!isTrash && onDelete && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onDelete(file.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  )}
-                  {isTrash && onRestore && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => onRestore(file.id)}
-                    >
-                      <History className="h-4 w-4" />
-                    </Button>
-                  )}
-                </TableCell>
-              )}
+              <TableCell>{formatDate(file.updatedAt)}</TableCell>
+              <TableCell className="text-right space-x-2">
+                {onDownload && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onDownload(file)}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                )}
+                {showShareActions && onShare && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onShare(file)}
+                  >
+                    <Share2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

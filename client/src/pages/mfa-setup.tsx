@@ -117,7 +117,13 @@ export default function MfaSetup() {
     setError(null);
     
     try {
-      await apiRequest("POST", "/api/mfa/disable");
+      const response = await apiRequest("POST", "/api/mfa/disable");
+      const data = await response.json();
+      
+      if (data.token) {
+        // Update the token in localStorage
+        localStorage.setItem("token", data.token);
+      }
       
       toast({
         title: "Success",
@@ -130,7 +136,7 @@ export default function MfaSetup() {
       setQrCodeUrl(null);
       
       // Refresh the user data to update MFA status
-      await updateAuthState(localStorage.getItem("token"));
+      await updateAuthState(data.token || localStorage.getItem("token"));
 
       // Switch to setup tab
       const setupTab = document.querySelector('[value="setup"]') as HTMLButtonElement;

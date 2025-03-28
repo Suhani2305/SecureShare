@@ -28,7 +28,7 @@ export function AddMemberModal({ open, onOpenChange }: AddMemberModalProps) {
 
   const addMemberMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", `${API_ENDPOINTS.ADMIN}/team/members`, {
+      const response = await apiRequest("POST", `${API_ENDPOINTS.TEAM_MEMBERS}`, {
         username,
         accessLevel
       });

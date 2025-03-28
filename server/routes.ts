@@ -409,6 +409,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const file = req.file;
       const encrypt = req.body.encrypt === "true";
       const accessControl = req.body.accessControl || "private";
+      const passwordProtect = req.body.passwordProtect === "true";
+      const password = req.body.password;
+
+      // Validate password if password protection is enabled
+      if (passwordProtect && !password) {
+        return res.status(400).json({ message: "Password is required for password protected files" });
+      }
 
       // Get file path and read the file
       const filePath = file.path;
@@ -422,6 +429,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Encrypt file if requested
       let encryptedContent = fileContent;
       let encryptionDetails = null;
+      let passwordHash = null;
       
       if (encrypt) {
         try {
@@ -447,6 +455,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
 
+      // Hash password if password protection is enabled
+      if (passwordProtect && password) {
+        passwordHash = await bcrypt.hash(password, 10);
+      }
+
       // Create file record in database
       const newFile = await storage.createFile({
         name: file.filename,
@@ -461,12 +474,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         encryptedKey: encryptionDetails?.encryptedKey,
         ownerId: req.user!.id,
         accessControl,
+        isPasswordProtected: passwordProtect,
+        passwordHash: passwordHash,
       });
 
       console.log("File record created:", {
         fileId: newFile.id,
         ownerId: newFile.ownerId,
-        encrypted: newFile.encrypted
+        encrypted: newFile.encrypted,
+        isPasswordProtected: newFile.isPasswordProtected
       });
 
       // Log activity
@@ -479,6 +495,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           fileName: file.originalname,
           fileSize: file.size,
           encrypted: encrypt,
+          isPasswordProtected: passwordProtect
         },
         req.ip
       );
@@ -489,6 +506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         size: newFile.size,
         type: newFile.mimeType,
         encrypted: newFile.encrypted,
+        isPasswordProtected: newFile.isPasswordProtected,
         createdAt: newFile.createdAt,
       });
     } catch (error) {
@@ -586,9 +604,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const fileId = parseInt(req.params.id);
       const { hasAccess, file } = await checkFileAccess(fileId, req.user!.id);
+      const providedPassword = req.query.password as string;
 
       if (!hasAccess || !file) {
         return res.status(403).json({ message: "Access denied" });
+      }
+
+      // Check if file is password protected
+      if (file.isPasswordProtected) {
+        if (!providedPassword) {
+          return res.status(401).json({ 
+            message: "Password required", 
+            requiresPassword: true 
+          });
+        }
+
+        // Verify password
+        const isPasswordValid = await bcrypt.compare(providedPassword, file.passwordHash!);
+        if (!isPasswordValid) {
+          return res.status(401).json({ 
+            message: "Invalid password",
+            requiresPassword: true
+          });
+        }
       }
 
       const filePath = path.join(UPLOAD_DIR, file.path);
@@ -1094,25 +1132,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
   apiRouter.get("/files/team", authenticate, async (req, res) => {
     try {
       console.log("Fetching team files for user:", req.user!.id);
+      
+      // Get all files shared with the user
       const sharedFiles = await storage.getSharedFilesByUserId(req.user!.id);
       console.log("Found shared files:", sharedFiles.length);
       
-      // Transform the data to match the expected format
-      const files = sharedFiles.map(({ file, share }) => ({
-        id: file.id,
-        name: file.name,
-        originalName: file.originalName,
-        mimeType: file.mimeType,
-        size: file.size,
-        encrypted: file.encrypted,
-        createdAt: file.createdAt,
-        updatedAt: file.updatedAt,
-        shareId: share.id,
-        accessLevel: share.accessLevel,
-        sharedBy: file.ownerId // You might want to fetch the actual username here
+      // Get user details for each file owner
+      const filesWithDetails = await Promise.all(sharedFiles.map(async ({ file, share }) => {
+        const owner = await storage.getUserById(file.ownerId);
+        return {
+          id: file.id,
+          name: file.name,
+          originalName: file.originalName,
+          mimeType: file.mimeType,
+          size: file.size,
+          encrypted: file.encrypted,
+          isPasswordProtected: file.isPasswordProtected,
+          createdAt: file.createdAt,
+          updatedAt: file.updatedAt,
+          shareId: share.id,
+          accessLevel: share.accessLevel,
+          sharedBy: file.ownerId,
+          owner: {
+            id: owner?.id || file.ownerId,
+            username: owner?.username || 'Unknown'
+          }
+        };
       }));
       
-      res.json(files);
+      res.json(filesWithDetails);
     } catch (error) {
       console.error("Error fetching team files:", error);
       res.status(500).json({ message: (error as Error).message });

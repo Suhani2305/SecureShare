@@ -8,16 +8,31 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-interface ShareModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  file: {
+interface SharedFile {
+  id: number;
+  name: string;
+  originalName: string;
+  mimeType: string;
+  size: number;
+  encrypted: boolean;
+  createdAt: string;
+  updatedAt: string;
+  shareId: number;
+  accessLevel: string;
+  sharedBy: number;
+  owner: {
     id: number;
-    originalName: string;
+    username: string;
   };
 }
 
-export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
+interface ShareModalProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  file: SharedFile;
+}
+
+export function ShareModal({ open, onOpenChange, file }: ShareModalProps) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [userId, setUserId] = useState("");
@@ -26,17 +41,15 @@ export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
 
   const shareMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest(`/api/files/${file.id}/share`, {
-        method: "POST",
-        body: JSON.stringify({
-          userId: parseInt(userId),
-          accessLevel,
-          expiresAt: expiresAt || undefined,
-        }),
+      const response = await apiRequest("POST", `/api/files/${file.id}/share`, {
+        userId: parseInt(userId),
+        accessLevel,
+        expiresAt: expiresAt || undefined,
       });
 
       if (!response.ok) {
-        throw new Error("Failed to share file");
+        const error = await response.json();
+        throw new Error(error.message || "Failed to share file");
       }
 
       return response.json();
@@ -47,7 +60,7 @@ export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
         title: "Success",
         description: "File shared successfully",
       });
-      onClose();
+      onOpenChange(false);
     },
     onError: (error) => {
       toast({
@@ -71,7 +84,7 @@ export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Share File</DialogTitle>
@@ -112,7 +125,7 @@ export function ShareModal({ isOpen, onClose, file }: ShareModalProps) {
           </div>
         </div>
         <div className="flex justify-end space-x-2">
-          <Button variant="outline" onClick={onClose}>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button onClick={handleShare} disabled={shareMutation.isPending}>

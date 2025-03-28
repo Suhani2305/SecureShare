@@ -20,9 +20,10 @@ export const API_ENDPOINTS = {
   AUTH: "/api/auth",
   MFA: "/api/mfa",
   ADMIN: "/api/admin",
+  TEAM_MEMBERS: "/api/team/members",
   TEAM: {
     MEMBERS: "/api/team/members",
     UPDATE_ACCESS: (userId: number) => `/api/team/members/${userId}/access`,
     REMOVE_MEMBER: (userId: number) => `/api/team/members/${userId}`,
   }
-} as const; 
+} as const;

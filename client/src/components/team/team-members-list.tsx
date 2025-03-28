@@ -32,9 +32,10 @@ export function TeamMembersList() {
   const { data: members, isLoading } = useQuery<TeamMember[]>({
     queryKey: ["team-members"],
     queryFn: async () => {
-      const response = await apiRequest("GET", `${API_ENDPOINTS.ADMIN}/users`);
+      const response = await apiRequest("GET", `${API_ENDPOINTS.TEAM_MEMBERS}`);
       if (!response.ok) {
-        throw new Error("Failed to fetch team members");
+        const error = await response.json();
+        throw new Error(error.message || "Failed to fetch team members");
       }
       return response.json();
     }
@@ -42,11 +43,12 @@ export function TeamMembersList() {
 
   const updateAccessMutation = useMutation({
     mutationFn: async ({ userId, accessLevel }: { userId: number; accessLevel: string }) => {
-      const response = await apiRequest("PATCH", `${API_ENDPOINTS.ADMIN}/team/members/${userId}`, {
+      const response = await apiRequest("PATCH", API_ENDPOINTS.TEAM.UPDATE_ACCESS(userId), {
         accessLevel
       });
       if (!response.ok) {
-        throw new Error("Failed to update access level");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to update access level");
       }
       return response.json();
     },
@@ -57,10 +59,10 @@ export function TeamMembersList() {
         description: "Member access level updated",
       });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to update access level",
+        description: error.message || "Failed to update access level",
         variant: "destructive",
       });
     },
@@ -68,9 +70,10 @@ export function TeamMembersList() {
 
   const removeMemberMutation = useMutation({
     mutationFn: async (userId: number) => {
-      const response = await apiRequest("DELETE", `${API_ENDPOINTS.ADMIN}/team/members/${userId}`);
+      const response = await apiRequest("DELETE", API_ENDPOINTS.TEAM.REMOVE_MEMBER(userId));
       if (!response.ok) {
-        throw new Error("Failed to remove team member");
+        const errorData = await response.json();
+        throw new Error(errorData.message || "Failed to remove team member");
       }
       return response.json();
     },
@@ -81,10 +84,10 @@ export function TeamMembersList() {
         description: "Team member removed",
       });
     },
-    onError: (error) => {
+    onError: (error: Error) => {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to remove team member",
+        description: error.message || "Failed to remove team member",
         variant: "destructive",
       });
     },

@@ -36,6 +36,8 @@ interface CreateFileParams {
   encryptedKey?: string | null;
   ownerId: number;
   accessControl: string;
+  isPasswordProtected?: boolean;
+  passwordHash?: string | null;
 }
 
 export interface User {
@@ -94,6 +96,8 @@ export interface IStorage {
     encryptedKey?: string | null;
     ownerId: number;
     accessControl: string;
+    isPasswordProtected: boolean;
+    passwordHash?: string | null;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -371,6 +375,8 @@ export class MemStorage implements IStorage {
     encryptedKey?: string | null;
     ownerId: number;
     accessControl: string;
+    isPasswordProtected: boolean;
+    passwordHash?: string | null;
     createdAt: string;
     updatedAt: string;
   }> {
@@ -432,6 +438,8 @@ export class MemStorage implements IStorage {
       encryptedKey: params.encryptedKey,
       ownerId: params.ownerId,
       accessControl: params.accessControl,
+      isPasswordProtected: params.isPasswordProtected ?? false,
+      passwordHash: params.passwordHash,
       createdAt: createdAt.toISOString(),
       updatedAt: updatedAt.toISOString()
     };
@@ -865,34 +873,31 @@ export class MemStorage implements IStorage {
     }
   }
 
-  async getTeamFiles(currentPath?: string): Promise<File[]> {
+  async getTeamFiles(currentPath: string = "/"): Promise<File[]> {
     try {
-      // Get all files
-      const allFiles = Array.from(this.files.values());
-      
-      // Filter files based on path and deleted status
-      const teamFiles = allFiles.filter(file => {
-        if (file.isDeleted) return false;
-        
-        // For root path, return files without a folder
-        if (currentPath === '/') {
-          return !file.folderId;
-        }
-        
-        // For other paths, return files in the specified folder
-        const folder = this.folders.get(parseInt(currentPath));
-        return folder && file.folderId === folder.id;
-      });
+      // Get all files that are shared with team members
+      const teamShares = Array.from(this.fileShares.values()).filter(
+        share => share.accessLevel === "team"
+      );
 
-      // Add additional file information
-      return teamFiles.map(file => ({
-        ...file,
-        size: fs.statSync(path.join(this.uploadDir, file.path)).size,
-        type: this.getMimeType(file.name)
-      }));
+      // Get the actual files
+      const teamFiles = await Promise.all(
+        teamShares.map(async share => {
+          const file = await this.getFile(share.fileId);
+          if (!file || file.deletedAt) return null;
+          return file;
+        })
+      );
+
+      // Filter out null values and sort by date
+      return teamFiles
+        .filter((file): file is File => file !== null)
+        .sort((a, b) => 
+          new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        );
     } catch (error) {
-      console.error('Error getting team files:', error);
-      throw error;
+      console.error("Error getting team files:", error);
+      throw new Error("Failed to get team files");
     }
   }
 
