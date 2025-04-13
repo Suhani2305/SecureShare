@@ -38,7 +38,7 @@ export function TeamMembersList() {
         throw new Error(error.message || "Failed to fetch team members");
       }
       const data = await response.json();
-      return Array.isArray(data) ? data : [];
+      return Array.isArray(data.members) ? data.members : [];
     }
   });
 
