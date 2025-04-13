@@ -29,7 +29,7 @@ export function TeamMembersList() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: members, isLoading } = useQuery<TeamMember[]>({
+  const { data: membersData, isLoading } = useQuery<TeamMember[]>({
     queryKey: ["team-members"],
     queryFn: async () => {
       const response = await apiRequest("GET", `${API_ENDPOINTS.TEAM_MEMBERS}`);
@@ -37,9 +37,12 @@ export function TeamMembersList() {
         const error = await response.json();
         throw new Error(error.message || "Failed to fetch team members");
       }
-      return response.json();
+      const data = await response.json();
+      return Array.isArray(data) ? data : [];
     }
   });
+
+  const members = membersData || [];
 
   const updateAccessMutation = useMutation({
     mutationFn: async ({ userId, accessLevel }: { userId: number; accessLevel: string }) => {
@@ -136,50 +139,56 @@ export function TeamMembersList() {
       </div>
 
       <div className="space-y-4">
-        {members?.map((member) => (
-          <div key={member.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
-            <div className="flex items-center space-x-3">
-              <Avatar>
-                <AvatarFallback>
-                  {member.username.slice(0, 2).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div>
-                <p className="font-medium">{member.username}</p>
-                <p className="text-sm text-gray-500">{member.email}</p>
+        {isLoading ? (
+          <div className="text-center py-4">Loading team members...</div>
+        ) : members.length === 0 ? (
+          <div className="text-center py-4">No team members found</div>
+        ) : (
+          members.map((member) => (
+            <div key={member.id} className="flex items-center justify-between p-2 hover:bg-gray-50 rounded-lg">
+              <div className="flex items-center space-x-3">
+                <Avatar>
+                  <AvatarFallback>
+                    {member.username.slice(0, 2).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <p className="font-medium">{member.username}</p>
+                  <p className="text-sm text-gray-500">{member.email}</p>
+                </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Badge variant={getAccessLevelColor(member.accessLevel)}>
+                  {member.accessLevel}
+                </Badge>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm">
+                      <MoreVertical className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "read")}>
+                      Set Read Access
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "write")}>
+                      Set Write Access
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "admin")}>
+                      Set Admin Access
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onClick={() => handleRemoveMember(member.id)}
+                    >
+                      Remove Member
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
-            <div className="flex items-center space-x-2">
-              <Badge variant={getAccessLevelColor(member.accessLevel)}>
-                {member.accessLevel}
-              </Badge>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm">
-                    <MoreVertical className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "read")}>
-                    Set Read Access
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "write")}>
-                    Set Write Access
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => handleUpdateAccess(member.id, "admin")}>
-                    Set Admin Access
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="text-red-600"
-                    onClick={() => handleRemoveMember(member.id)}
-                  >
-                    Remove Member
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-        ))}
+          ))
+        )}
       </div>
 
       <AddMemberModal
